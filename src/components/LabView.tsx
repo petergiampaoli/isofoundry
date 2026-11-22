@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import type { Direction, TraitKey } from '../types';
 import { DirectionCard } from './DirectionCard';
 import { Icon } from './Icon';
@@ -10,6 +10,8 @@ interface LabViewProps {
   selectedId: string | null;
   selected: Direction | null;
   locks: TraitKey[];
+  hasInspiration: boolean;
+  inspiration?: ReactNode;
   onExplore: () => void;
   onSelect: (id: string) => void;
 }
@@ -27,6 +29,8 @@ export function LabView({
   selectedId,
   selected,
   locks,
+  hasInspiration,
+  inspiration,
   onExplore,
   onSelect,
 }: LabViewProps) {
@@ -90,13 +94,15 @@ export function LabView({
               </button>
             ))}
           </div>
-          <button type="submit" className="button button--primary" disabled={!prompt.trim()}>
+          <button type="submit" className="button button--primary" disabled={!prompt.trim() && !hasInspiration}>
             <Icon name="sparkle" size={15} />
-            Explore directions
+            {hasInspiration ? 'Explore with reference' : 'Explore directions'}
             <kbd>⌘↵</kbd>
           </button>
         </div>
       </form>
+
+      {inspiration}
 
       {selected && (
         <div className="art-director-read">

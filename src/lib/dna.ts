@@ -45,13 +45,29 @@ export function createDNA(seed: number, prompt = ''): StyleDNA {
 }
 
 export function refreshDNA(dna: StyleDNA): StyleDNA {
-  const palette = paletteFromParams(dna.paletteParams);
+  const palette = paletteFromParams(
+    dna.paletteParams,
+    dna.referencePalette && (dna.paletteFidelity ?? 0) > 0
+      ? { colors: dna.referencePalette, fidelity: dna.paletteFidelity ?? 0 }
+      : undefined,
+  );
   const golden = Number.isFinite(dna.golden) ? dna.golden : 0.618;
+  const derived = deriveVoice(dna);
+  const voice = dna.voiceOverride
+    ? {
+        grounded: clamp(dna.voiceOverride.grounded ?? derived.grounded),
+        ornate: clamp(dna.voiceOverride.ornate ?? derived.ornate),
+        brutal: clamp(dna.voiceOverride.brutal ?? derived.brutal),
+        springy: clamp(dna.voiceOverride.springy ?? derived.springy),
+        vivid: clamp(dna.voiceOverride.vivid ?? derived.vivid),
+        gritty: clamp(dna.voiceOverride.gritty ?? derived.gritty),
+      }
+    : derived;
   return {
     ...dna,
     golden,
     palette,
-    voice: deriveVoice(dna),
+    voice,
   };
 }
 
@@ -95,6 +111,9 @@ export function driftDNA(dna: StyleDNA, seed: number): StyleDNA {
   const next: StyleDNA = {
     ...dna,
     seed,
+    referencePalette: undefined,
+    paletteFidelity: 0,
+    voiceOverride: undefined,
     paletteParams: {
       hue: (dna.paletteParams.hue + rng.float(120, 210)) % 360,
       accentHue: (dna.paletteParams.accentHue + rng.float(100, 220)) % 360,

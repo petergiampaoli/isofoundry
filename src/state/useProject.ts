@@ -5,16 +5,20 @@ import type {
   Direction,
   FitResult,
   FitTest,
+  InspirationAsset,
+  InspirationSettings,
   JourneyEvent,
   JourneyEventType,
   PaletteParams,
   ProjectState,
   StyleDNA,
   TraitKey,
+  VisionRead,
   VoiceAxes,
 } from '../types';
-import { ASSET_LABELS } from '../types';
+import { ASSET_LABELS, DEFAULT_INSPIRATION_SETTINGS } from '../types';
 import { buildDirections, parsePrompt } from '../lib/prompt';
+import { combineInspirations } from '../lib/inspiration';
 import { createDNA, driftDNA, generateDirectionName, makeManifesto, mutateDNA, refreshDNA } from '../lib/dna';
 import { hashString } from '../lib/rng';
 import { renderAsset } from '../lib/render';
@@ -65,6 +69,10 @@ export function createInitialProject(): ProjectState {
       event('project', 'Style session opened', 'A starter prompt is loaded. Replace it with your own.'),
       event('prompt', 'Seed prompt explored', INITIAL_PROMPT),
     ],
+    inspirations: [],
+    primaryInspirationId: null,
+    inspirationSettings: { ...DEFAULT_INSPIRATION_SETTINGS },
+    inspirationVision: null,
     createdAt: now,
     updatedAt: now,
     shuffle: salt,
@@ -85,9 +93,30 @@ export function createEmptyProject(): ProjectState {
     anchor: null,
     tests: [],
     events: [event('project', 'New session opened', 'The style conversation starts here.')],
+    inspirations: [],
+    primaryInspirationId: null,
+    inspirationSettings: { ...DEFAULT_INSPIRATION_SETTINGS },
+    inspirationVision: null,
     createdAt: now,
     updatedAt: now,
     shuffle: hashString(`new-${now}`),
+  };
+}
+
+export function normalizeProject(project: ProjectState): ProjectState {
+  return {
+    ...project,
+    inspirations: Array.isArray(project.inspirations) ? project.inspirations : [],
+    primaryInspirationId: project.primaryInspirationId ?? project.inspirations?.[0]?.id ?? null,
+    inspirationSettings: {
+      ...DEFAULT_INSPIRATION_SETTINGS,
+      ...(project.inspirationSettings ?? {}),
+      features: {
+        ...DEFAULT_INSPIRATION_SETTINGS.features,
+        ...(project.inspirationSettings?.features ?? {}),
+      },
+    },
+    inspirationVision: project.inspirationVision ?? null,
   };
 }
 
@@ -96,7 +125,7 @@ export function loadStoredProject(): ProjectState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as ProjectState;
-      if (parsed?.version === 1 && Array.isArray(parsed.directions)) return parsed;
+      if (parsed?.version === 1 && Array.isArray(parsed.directions)) return normalizeProject(parsed);
     }
   } catch {
     // Ignore a corrupted local session and start clean.
@@ -122,6 +151,13 @@ export interface ProjectActions {
   importProject: (project: ProjectState) => void;
   setSelectedDirection: (id: string | null) => void;
   logEvent: (type: JourneyEventType, label: string, detail?: string) => void;
+  addInspiration: (asset: InspirationAsset) => void;
+  removeInspiration: (id: string) => void;
+  clearInspirations: () => void;
+  setPrimaryInspiration: (id: string) => void;
+  updateInspiration: (id: string, patch: Partial<Pick<InspirationAsset, 'weight'>>) => void;
+  updateInspirationSettings: (patch: Partial<InspirationSettings>) => void;
+  setInspirationVision: (vision: VisionRead | null) => void;
 }
 
 export function useProject(): ProjectActions {
@@ -149,11 +185,21 @@ export function useProject(): ProjectActions {
 
   const explore = useCallback((prompt: string) => {
     const trimmed = prompt.trim();
-    if (!trimmed) return;
     setProject((current) => {
+      if (!trimmed && current.inspirations.length === 0) return current;
       const base = current.directions.find((direction) => direction.id === current.selectedDirectionId)?.dna ?? null;
-      const salt = hashString(`${trimmed}|${current.shuffle}|${current.directions.length}`);
-      const { directions } = buildDirections(trimmed, base, current.lockedTraits, salt, 4);
+      const combined = combineInspirations(current.inspirations, current.primaryInspirationId, current.inspirationSettings);
+      const vision = current.inspirationVision?.accepted ? current.inspirationVision : null;
+      const inspirationSalt = current.inspirations.map((asset) => asset.hash).join(',');
+      const salt = hashString(`${trimmed}|${current.shuffle}|${current.directions.length}|${inspirationSalt}|${current.inspirationSettings.influence.toFixed(2)}`);
+      const { directions } = buildDirections(
+        trimmed,
+        base,
+        current.lockedTraits,
+        salt,
+        4,
+        combined ? { read: combined, settings: current.inspirationSettings, vision } : null,
+      );
       if (directions.length === 0) return current;
       const next: ProjectState = {
         ...current,
@@ -164,7 +210,14 @@ export function useProject(): ProjectActions {
         shuffle: salt,
         updatedAt: Date.now(),
       };
-      return pushEvent(next, event('prompt', 'Explored a new prompt', trimmed));
+      return pushEvent(
+        next,
+        event(
+          'prompt',
+          combined ? 'Explored with inspiration art' : 'Explored a new prompt',
+          trimmed || 'Reference-led exploration',
+        ),
+      );
     });
   }, []);
 
@@ -357,7 +410,7 @@ export function useProject(): ProjectActions {
 
   const importProject = useCallback((incoming: ProjectState) => {
     if (incoming?.version === 1 && Array.isArray(incoming.directions)) {
-      setProject(incoming);
+      setProject(normalizeProject(incoming));
     }
   }, []);
 
@@ -367,6 +420,81 @@ export function useProject(): ProjectActions {
 
   const logEvent = useCallback((type: JourneyEventType, label: string, detail?: string) => {
     setProject((current) => pushEvent(current, event(type, label, detail)));
+  }, []);
+
+  const addInspiration = useCallback((asset: InspirationAsset) => {
+    setProject((current) => {
+      if (current.inspirations.some((item) => item.id === asset.id)) return current;
+      const inspirations = [...current.inspirations, asset].slice(0, 4);
+      const primaryInspirationId = current.primaryInspirationId ?? asset.id;
+      return pushEvent(
+        { ...current, inspirations, primaryInspirationId, updatedAt: Date.now() },
+        event('inspiration', `Added reference: ${asset.name}`, `${asset.width}×${asset.height} / ${asset.read.keywords.slice(0, 3).join(', ')}`),
+      );
+    });
+  }, []);
+
+  const removeInspiration = useCallback((id: string) => {
+    setProject((current) => {
+      const inspirations = current.inspirations.filter((item) => item.id !== id);
+      const primaryInspirationId = current.primaryInspirationId === id
+        ? inspirations[0]?.id ?? null
+        : current.primaryInspirationId;
+      return pushEvent(
+        { ...current, inspirations, primaryInspirationId, updatedAt: Date.now() },
+        event('inspiration', 'Removed a reference image'),
+      );
+    });
+  }, []);
+
+  const clearInspirations = useCallback(() => {
+    setProject((current) => pushEvent(
+      { ...current, inspirations: [], primaryInspirationId: null, inspirationVision: null, updatedAt: Date.now() },
+      event('inspiration', 'Cleared inspiration references'),
+    ));
+  }, []);
+
+  const setPrimaryInspiration = useCallback((id: string) => {
+    setProject((current) => {
+      if (!current.inspirations.some((item) => item.id === id)) return current;
+      return pushEvent(
+        { ...current, primaryInspirationId: id, updatedAt: Date.now() },
+        event('inspiration', 'Changed the primary reference', current.inspirations.find((item) => item.id === id)?.name),
+      );
+    });
+  }, []);
+
+  const updateInspiration = useCallback((id: string, patch: Partial<Pick<InspirationAsset, 'weight'>>) => {
+    setProject((current) => ({
+      ...current,
+      inspirations: current.inspirations.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+      updatedAt: Date.now(),
+    }));
+  }, []);
+
+  const updateInspirationSettings = useCallback((patch: Partial<InspirationSettings>) => {
+    setProject((current) => ({
+      ...current,
+      inspirationSettings: {
+        ...current.inspirationSettings,
+        ...patch,
+        features: patch.features
+          ? { ...current.inspirationSettings.features, ...patch.features }
+          : current.inspirationSettings.features,
+      },
+      updatedAt: Date.now(),
+    }));
+  }, []);
+
+  const setInspirationVision = useCallback((vision: VisionRead | null) => {
+    setProject((current) => pushEvent(
+      { ...current, inspirationVision: vision, updatedAt: Date.now() },
+      event(
+        'inspiration',
+        vision ? (vision.accepted ? 'Applied the AI voice read' : 'Read inspiration with vision AI') : 'Discarded the AI voice read',
+        vision?.mood,
+      ),
+    ));
   }, []);
 
   return {
@@ -387,6 +515,13 @@ export function useProject(): ProjectActions {
     importProject,
     setSelectedDirection,
     logEvent,
+    addInspiration,
+    removeInspiration,
+    clearInspirations,
+    setPrimaryInspiration,
+    updateInspiration,
+    updateInspirationSettings,
+    setInspirationVision,
   };
 }
 

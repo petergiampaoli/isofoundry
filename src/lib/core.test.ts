@@ -1,10 +1,59 @@
-import { describe, expect, it } from 'vitest';
-import type { Anchor } from '../types';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Anchor, CombinedInspirationRead, InspirationAsset, InspirationSettings } from '../types';
+import { DEFAULT_INSPIRATION_SETTINGS } from '../types';
 import { createDNA, driftDNA } from './dna';
 import { buildDirections, parsePrompt } from './prompt';
 import { renderAsset } from './render';
 import { compareSignatures, computeSignature } from './signature';
 import { buildGodotSpriteFrames } from './export';
+import { analyzePixels, applyInspirationToDNA, combineInspirations } from './inspiration';
+import { paletteFromParams } from './palette';
+import { readWithVision } from './vision';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function pixelsFor(width: number, height: number, colorAt: (x: number, y: number) => [number, number, number, number]): Uint8ClampedArray {
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const [r, g, b, a] = colorAt(x, y);
+      const index = (y * width + x) * 4;
+      data[index] = r;
+      data[index + 1] = g;
+      data[index + 2] = b;
+      data[index + 3] = a;
+    }
+  }
+  return data;
+}
+
+function testAsset(id: string, name: string, palette: string[]): InspirationAsset {
+  const read = analyzePixels(
+    pixelsFor(64, 64, (x, y) => {
+      const color = palette[Math.min(palette.length - 1, Math.floor((x / 64) * palette.length))];
+      const r = parseInt(color.slice(1, 3), 16);
+      const g = parseInt(color.slice(3, 5), 16);
+      const b = parseInt(color.slice(5, 7), 16);
+      return [r, g, b, y % 4 === 0 ? 180 : 255];
+    }),
+    64,
+    64,
+  );
+  return {
+    id,
+    name,
+    hash: id,
+    width: 64,
+    height: 64,
+    thumbnail: 'data:image/png;base64,AA==',
+    preview: 'data:image/png;base64,AA==',
+    read,
+    weight: 0.5,
+    createdAt: Date.now(),
+  };
+}
 
 describe('deterministic renderer', () => {
   const dna = createDNA(1234, 'moss, iron, wind-worn cloth');
@@ -86,6 +135,144 @@ describe('prompt grammar', () => {
     expect(insight.antiGoals).toContain('neon');
     expect(insight.antiGoals).toContain('cute');
     expect(dna.paletteParams.chroma).toBeLessThan(0.9);
+  });
+});
+
+describe('inspiration analysis', () => {
+  it('reads palette and value structure from a synthetic image', () => {
+    const data = pixelsFor(80, 80, (x) => (x % 20 < 10 ? [36, 60, 34, 255] : [210, 180, 112, 255]));
+    const read = analyzePixels(data, 80, 80);
+    expect(read.palette.length).toBeGreaterThanOrEqual(2);
+    expect(read.contrast).toBeGreaterThan(0.4);
+    expect(read.edgeDensity).toBeGreaterThan(0.02);
+    expect(read.detailEntropy).toBeGreaterThan(0);
+  });
+
+  it('ignores a dominant presentation border', () => {
+    const data = pixelsFor(100, 100, (x, y) => {
+      if (x < 12 || y < 12 || x >= 88 || y >= 88) return [255, 255, 255, 255];
+      return [124, 48, 42, 255];
+    });
+    const read = analyzePixels(data, 100, 100);
+    expect(read.palette.every((color) => color !== '#ffffff')).toBe(true);
+  });
+
+  it('combines a primary and supporting reference', () => {
+    const primary = testAsset('ref_a', 'Primary', ['#202820', '#738650', '#d8c9aa']);
+    const support = testAsset('ref_b', 'Support', ['#37241b', '#a35d42', '#efd391']);
+    const combined = combineInspirations([primary, support], primary.id, DEFAULT_INSPIRATION_SETTINGS);
+    expect(combined).not.toBeNull();
+    expect(combined?.sources).toHaveLength(2);
+    expect(combined?.sources[0].primary).toBe(true);
+    expect(combined?.palette.length).toBeGreaterThan(2);
+  });
+
+  it('applies reference traits and respects a locked palette', () => {
+    const asset = testAsset('ref_c', 'Palette', ['#18251a', '#6d8f4d', '#e1c98d', '#8a4f33']);
+    const combined = combineInspirations([asset], asset.id, DEFAULT_INSPIRATION_SETTINGS) as CombinedInspirationRead;
+    const settings: InspirationSettings = {
+      ...DEFAULT_INSPIRATION_SETTINGS,
+      influence: 1,
+      features: { palette: true, form: true, finish: true, line: true },
+    };
+    const base = createDNA(321, 'moss and iron');
+    const applied = applyInspirationToDNA({
+      dna: base,
+      combined,
+      settings,
+      mode: 'palette',
+      locks: [],
+      vision: null,
+    });
+    expect(applied.referencePalette).toEqual(combined.palette);
+    expect(applied.paletteFidelity).toBeGreaterThan(0);
+
+    const locked = applyInspirationToDNA({
+      dna: base,
+      combined,
+      settings,
+      mode: 'palette',
+      locks: ['palette'],
+      vision: null,
+    });
+    expect(locked.referencePalette).toBeUndefined();
+  });
+
+  it('builds four reference-led directions with distinct modes', () => {
+    const asset = testAsset('ref_d', 'Mood', ['#202820', '#738650', '#d8c9aa', '#8a4f33']);
+    const combined = combineInspirations([asset], asset.id, DEFAULT_INSPIRATION_SETTINGS) as CombinedInspirationRead;
+    const { directions } = buildDirections('moss and iron', null, [], 99, 4, {
+      read: combined,
+      settings: { ...DEFAULT_INSPIRATION_SETTINGS, influence: 0.85 },
+      vision: null,
+    });
+    expect(directions.map((direction) => direction.inspiration?.mode)).toEqual(['palette', 'form', 'finish', 'prompt']);
+    expect(directions.every((direction) => (direction.inspiration?.match ?? 0) > 0)).toBe(true);
+    expect(directions.every((direction) => (direction.inspiration?.match ?? 0) < 101)).toBe(true);
+  });
+
+  it('rebuilds material ramps from a reference palette at high fidelity', () => {
+    const generated = paletteFromParams({ hue: 120, accentHue: 200, foliageHue: 110, chroma: 0.4, contrast: 0.55, warmth: -0.1 });
+    const referenced = paletteFromParams(
+      { hue: 120, accentHue: 200, foliageHue: 110, chroma: 0.4, contrast: 0.55, warmth: -0.1 },
+      { colors: ['#18251a', '#6d8f4d', '#d8c9aa', '#8a4f33'], fidelity: 1 },
+    );
+    expect(referenced.ramps.foliage).not.toEqual(generated.ramps.foliage);
+    expect(referenced.ramps.foliage).toHaveLength(5);
+  });
+});
+
+describe('vision adapter', () => {
+  it('parses an OpenAI-compatible vision response', async () => {
+    const asset = testAsset('ref_e', 'Lantern', ['#202820', '#738650', '#d8c9aa']);
+    asset.preview = 'data:image/webp;base64,AAAA';
+    const combined = combineInspirations([asset], asset.id, DEFAULT_INSPIRATION_SETTINGS) as CombinedInspirationRead;
+    const mock = vi.fn(async () => new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            theme: 'Lanterns in the ash',
+            motifs: ['watchfires', 'ruined walls'],
+            materials: ['soot-stained iron'],
+            mood: 'Watchful and tired.',
+            shapeLanguage: 'Angular masses, soft light.',
+            narrativeVoice: 'Stoic survivors.',
+            motionDescription: 'Deliberate and heavy.',
+            suggestedMotion: { weight: 0.8, bounce: 0.2, sway: 0.3 },
+            voice: { grounded: 0.85, ornate: 0.35, brutal: 0.6, springy: 0.2, vivid: 0.35, gritty: 0.7 },
+            keywords: ['soot', 'lantern'],
+            antiGoals: ['gloss'],
+            manifesto: 'A watchful world with a small light.',
+            confidence: 0.8,
+          }),
+        },
+      }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', mock);
+    const read = await readWithVision({
+      assets: [asset],
+      prompt: 'moss and iron',
+      combined,
+      config: { baseUrl: 'https://mock.example/v1', model: 'mock-vision', consent: true },
+      apiKey: 'test',
+    });
+    expect(read.accepted).toBe(false);
+    expect(read.theme).toBe('Lanterns in the ash');
+    expect(read.voice.grounded).toBeCloseTo(0.85);
+    expect(read.suggestedMotion.weight).toBeCloseTo(0.8);
+    expect(mock).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a vision request without consent', async () => {
+    const asset = testAsset('ref_f', 'No consent', ['#202820', '#738650', '#d8c9aa']);
+    const combined = combineInspirations([asset], asset.id, DEFAULT_INSPIRATION_SETTINGS) as CombinedInspirationRead;
+    await expect(readWithVision({
+      assets: [asset],
+      prompt: '',
+      combined,
+      config: { baseUrl: 'https://mock.example/v1', model: 'mock-vision', consent: false },
+      apiKey: '',
+    })).rejects.toThrow(/Confirm/);
   });
 });
 

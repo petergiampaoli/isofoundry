@@ -3,6 +3,7 @@ import { useProject } from './state/useProject';
 import type { AssetKind, ProjectState } from './types';
 import { JourneyRail } from './components/JourneyRail';
 import { LabView } from './components/LabView';
+import { InspirationPanel } from './components/InspirationPanel';
 import { Inspector } from './components/Inspector';
 import { DevelopView } from './components/DevelopView';
 import { GuideView } from './components/GuideView';
@@ -205,6 +206,19 @@ export default function App() {
               selectedId={project.selectedDirectionId}
               selected={selected}
               locks={project.lockedTraits}
+              hasInspiration={project.inspirations.length > 0}
+              inspiration={(
+                <InspirationPanel
+                  project={project}
+                  onAdd={actions.addInspiration}
+                  onRemove={actions.removeInspiration}
+                  onClear={actions.clearInspirations}
+                  onPrimary={actions.setPrimaryInspiration}
+                  onUpdateWeight={(id, weight) => actions.updateInspiration(id, { weight })}
+                  onUpdateSettings={actions.updateInspirationSettings}
+                  onSetVision={actions.setInspirationVision}
+                />
+              )}
               onExplore={() => actions.explore(prompt)}
               onSelect={actions.selectDirection}
             />

@@ -20,6 +20,7 @@ const EVENT_MARK: Record<JourneyEventType, string> = {
   test: '≋',
   export: '↥',
   reset: '×',
+  inspiration: '◈',
 };
 
 function formatTime(value: number): string {

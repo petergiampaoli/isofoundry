@@ -22,6 +22,11 @@ export function DirectionCard({ direction, index, selected, onSelect }: Directio
           <h3>{direction.name}</h3>
           <span>{direction.keywords.slice(0, 3).join(' / ') || 'open direction'}</span>
         </div>
+        {direction.inspiration && (
+          <span className="pill pill--ref">
+            REF {direction.inspiration.match}
+          </span>
+        )}
         {selected && <span className="pill pill--accent">Selected</span>}
       </header>
 
@@ -52,7 +57,10 @@ export function DirectionCard({ direction, index, selected, onSelect }: Directio
       </div>
 
       <div className="direction-card__footer">
-        <div className="direction-card__seed">SEED {direction.seed.toString(16).toUpperCase()}</div>
+        <div className="direction-card__seed">
+          {direction.inspiration ? `${direction.inspiration.mode.toUpperCase()} · ` : ''}
+          SEED {direction.seed.toString(16).toUpperCase()}
+        </div>
         <button type="button" className={`select-button ${selected ? 'is-selected' : ''}`} onClick={onSelect}>
           {selected ? (
             <>

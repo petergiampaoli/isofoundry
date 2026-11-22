@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Anchor, AssetKind, FitResult, ProjectState } from '../types';
 import { ASSET_LABELS } from '../types';
 import { driftDNA } from '../lib/dna';
+import { combineInspirations } from '../lib/inspiration';
 import { hashString } from '../lib/rng';
 import { renderAsset } from '../lib/render';
 import { compareSignatures, computeSignature } from '../lib/signature';
@@ -75,6 +76,15 @@ export function GuideView({
   const driftPreview = useMemo(() => makePreview(anchor, kind, true, nonce), [anchor, kind, nonce]);
 
   const direction = project.directions.find((item) => item.id === anchor.directionId);
+  const combined = useMemo(
+    () => combineInspirations(project.inspirations, project.primaryInspirationId, project.inspirationSettings),
+    [project.inspirations, project.primaryInspirationId, project.inspirationSettings],
+  );
+  const vision = project.inspirationVision;
+  const anchorUsesReference = Boolean(
+    direction?.inspiration
+    || (anchor.dna.referencePalette?.length && (anchor.dna.paletteFidelity ?? 0) > 0),
+  );
   const signature = anchor.signature;
   const metrics = [
     ['Value contrast', signature.stdL / 0.32],
@@ -168,9 +178,12 @@ export function GuideView({
             <AxisBar label="Gritty" value={anchor.dna.voice.gritty} />
           </div>
           <div className="guide-voice__tags">
-            {(direction?.keywords ?? []).map((keyword) => (
+            {(direction?.keywords ?? []).slice(0, 12).map((keyword) => (
               <span key={keyword} className="tag">#{keyword}</span>
             ))}
+            {(direction?.keywords.length ?? 0) > 12 && (
+              <span className="tag">+{(direction?.keywords.length ?? 0) - 12}</span>
+            )}
             {(direction?.antiGoals ?? []).map((goal) => (
               <span key={goal} className="tag tag--warn">no {goal}</span>
             ))}
@@ -197,6 +210,57 @@ export function GuideView({
         </section>
       </div>
 
+      {combined && anchorUsesReference && (
+        <section className="panel influence-panel">
+          <div className="section-heading">
+            <span>Influences</span>
+            <span className="muted">
+              {project.inspirations.length} ref{project.inspirations.length === 1 ? '' : 's'} / influence {Math.round(project.inspirationSettings.influence * 100)}% / fidelity {Math.round(project.inspirationSettings.paletteFidelity * 100)}%
+            </span>
+          </div>
+          <div className="influence-layout">
+            <div className="influence-refs">
+              {project.inspirations.map((asset) => (
+                <figure key={asset.id} className={asset.id === project.primaryInspirationId ? 'is-primary' : ''}>
+                  <img src={asset.thumbnail} alt={asset.name} />
+                  <figcaption>
+                    <span>{asset.id === project.primaryInspirationId ? 'PRIMARY' : 'SUPPORT'}</span>
+                    <strong>{asset.name}</strong>
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+            <div className="influence-read">
+              <div className="ref-palette">
+                {combined.palette.map((color) => (
+                  <span key={color} style={{ background: color }} title={color} />
+                ))}
+              </div>
+              <div className="read-tags">
+                {combined.keywords.map((keyword) => (
+                  <span key={keyword} className="tag">#{keyword}</span>
+                ))}
+              </div>
+              {project.inspirationSettings.notes && (
+                <p className="influence-note">“{project.inspirationSettings.notes}”</p>
+              )}
+              {vision?.accepted && (
+                <div className="influence-ai">
+                  <span className="eyebrow">AI voice</span>
+                  <strong>{vision.theme}</strong>
+                  <p>{vision.mood} {vision.motionDescription}</p>
+                </div>
+              )}
+              {!vision?.accepted && (
+                <p className="panel__note">
+                  The reference led the selected visual traits; motion and narrative remain prompt-led.
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
       <div className="guide__middle">
         <section className="panel palette-panel">
           <div className="section-heading">
@@ -215,6 +279,16 @@ export function GuideView({
               </div>
             ))}
           </div>
+          {anchor.dna.referencePalette && (anchor.dna.paletteFidelity ?? 0) > 0 && (
+            <div className="reference-palette-row">
+              <span>REFERENCE PALETTE / {Math.round((anchor.dna.paletteFidelity ?? 0) * 100)}%</span>
+              <div>
+                {anchor.dna.referencePalette.map((color) => (
+                  <span key={color} style={{ background: color }} title={color} />
+                ))}
+              </div>
+            </div>
+          )}
           <div className="palette-outline">
             <span>OUTLINE</span>
             <span style={{ background: anchor.dna.palette.outline }} />

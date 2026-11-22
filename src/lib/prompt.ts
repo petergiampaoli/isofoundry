@@ -1,7 +1,16 @@
 import { clamp, hashString, lerp } from './rng';
 import { blendHue } from './color';
 import { refreshDNA, createDNA, cloneDNA, makeDirection, generateDirectionName } from './dna';
-import type { AssetKind, StyleDNA, TraitKey } from '../types';
+import type {
+  AssetKind,
+  CombinedInspirationRead,
+  InspirationMode,
+  InspirationSettings,
+  StyleDNA,
+  TraitKey,
+  VisionRead,
+} from '../types';
+import { applyInspirationToDNA, referenceMatch } from './inspiration';
 
 export interface PromptInsight {
   summary: string[];
@@ -497,7 +506,7 @@ function applyModifierWords(text: string, dna: StyleDNA, summary: string[]): voi
   }
 }
 
-function applyAntiGoals(
+export function applyAntiGoals(
   antiGoals: string[],
   dna: StyleDNA,
   summary: string[],
@@ -588,6 +597,8 @@ export function parsePrompt(
     if (trait === 'palette') {
       dna.paletteParams = { ...base.paletteParams };
       dna.palette = { ...base.palette };
+      dna.referencePalette = base.referencePalette ? [...base.referencePalette] : undefined;
+      dna.paletteFidelity = base.paletteFidelity ?? 0;
     }
     if (trait === 'form') {
       dna.roundness = base.roundness;
@@ -617,12 +628,27 @@ export function parsePrompt(
   };
 }
 
+export interface InspirationDirectionInput {
+  read: CombinedInspirationRead;
+  settings: InspirationSettings;
+  vision?: VisionRead | null;
+}
+
+const DIRECTION_MODES: InspirationMode[] = ['palette', 'form', 'finish', 'prompt'];
+const MODE_LABELS: Record<InspirationMode, string> = {
+  palette: 'Reference palette leads',
+  form: 'Reference form leads',
+  finish: 'Reference finish leads',
+  prompt: 'Prompt-led counterpoint',
+};
+
 export function buildDirections(
   prompt: string,
   base: StyleDNA | null,
   locks: TraitKey[],
   salt: number,
   count = 4,
+  inspiration?: InspirationDirectionInput | null,
 ): { directions: ReturnType<typeof makeDirection>[]; insight: PromptInsight } {
   const directions: ReturnType<typeof makeDirection>[] = [];
   const usedNames = new Set<string>();
@@ -631,45 +657,88 @@ export function buildDirections(
   for (let i = 0; i < count; i += 1) {
     const parsed = parsePrompt(prompt, base, locks, salt + i * 131);
     if (i === 0) insight = parsed.insight;
-    const dna = parsed.dna;
+    const mode = inspiration ? DIRECTION_MODES[i % DIRECTION_MODES.length] : null;
+    let dna = parsed.dna;
     const variationLabels: string[] = [];
+    if (inspiration) {
+      dna = applyInspirationToDNA({
+        dna,
+        combined: inspiration.read,
+        settings: inspiration.settings,
+        mode: mode as InspirationMode,
+        locks,
+        vision: inspiration.vision,
+      });
+      variationLabels.push(MODE_LABELS[mode as InspirationMode]);
+      if (inspiration.vision?.accepted) {
+        variationLabels.push('AI voice read applied');
+      }
+    }
+    const variationScale = inspiration ? 1 - inspiration.settings.influence * 0.35 : 1;
 
     if (!locks.includes('palette')) {
-      dna.paletteParams.hue = (dna.paletteParams.hue + (i - 1.5) * 14 + 360) % 360;
-      dna.paletteParams.accentHue = (dna.paletteParams.accentHue + (i - 1.5) * 30 + 360) % 360;
-      dna.paletteParams.foliageHue = (dna.paletteParams.foliageHue + (i - 1.5) * 10 + 360) % 360;
-      dna.paletteParams.chroma = clamp(dna.paletteParams.chroma + ((i % 2 === 0 ? 1 : -1) * 0.085));
-      dna.paletteParams.contrast = clamp(dna.paletteParams.contrast + ((i % 3) - 1) * 0.045, 0.2, 0.92);
+      dna.paletteParams.hue = (dna.paletteParams.hue + (i - 1.5) * 14 * variationScale + 360) % 360;
+      dna.paletteParams.accentHue = (dna.paletteParams.accentHue + (i - 1.5) * 30 * variationScale + 360) % 360;
+      dna.paletteParams.foliageHue = (dna.paletteParams.foliageHue + (i - 1.5) * 10 * variationScale + 360) % 360;
+      dna.paletteParams.chroma = clamp(dna.paletteParams.chroma + ((i % 2 === 0 ? 1 : -1) * 0.085 * variationScale));
+      dna.paletteParams.contrast = clamp(dna.paletteParams.contrast + ((i % 3) - 1) * 0.045 * variationScale, 0.2, 0.92);
       if (i % 2 === 1) variationLabels.push('cooler variation');
       else variationLabels.push('warmer variation');
     }
     if (!locks.includes('form')) {
-      dna.roundness = clamp(dna.roundness + (i - 1.5) * 0.075);
-      dna.chunkiness = clamp(dna.chunkiness + ((i % 3) - 1) * 0.06);
-      dna.spikiness = clamp(dna.spikiness + (i % 2 === 0 ? 0.1 : -0.1));
-      dna.height = clamp(dna.height + ((i % 2) * 2 - 1) * 0.05);
-      dna.golden = clamp((dna.golden ?? 0.618) + (i - 1.5) * 0.035);
+      dna.roundness = clamp(dna.roundness + (i - 1.5) * 0.075 * variationScale);
+      dna.chunkiness = clamp(dna.chunkiness + ((i % 3) - 1) * 0.06 * variationScale);
+      dna.spikiness = clamp(dna.spikiness + (i % 2 === 0 ? 0.1 : -0.1) * variationScale);
+      dna.height = clamp(dna.height + ((i % 2) * 2 - 1) * 0.05 * variationScale);
+      dna.golden = clamp((dna.golden ?? 0.618) + (i - 1.5) * 0.035 * variationScale);
       variationLabels.push(i % 2 === 0 ? 'heavier silhouette' : 'leaner silhouette');
     }
     if (!locks.includes('detail')) {
-      dna.detail = clamp(dna.detail + (i - 1.5) * 0.06);
+      dna.detail = clamp(dna.detail + (i - 1.5) * 0.06 * variationScale);
       if (i >= 2) variationLabels.push('more surface history');
     }
     if (!locks.includes('motion')) {
-      dna.bounce = clamp(dna.bounce + (i - 1.5) * 0.06);
-      dna.weight = clamp(dna.weight + ((i % 2) * 2 - 1) * 0.05);
+      dna.bounce = clamp(dna.bounce + (i - 1.5) * 0.06 * variationScale);
+      dna.weight = clamp(dna.weight + ((i % 2) * 2 - 1) * 0.05 * variationScale);
     }
 
+    const mergedAntiGoals = [...new Set([
+      ...parsed.insight.antiGoals,
+      ...(inspiration?.vision?.accepted ? inspiration.vision.antiGoals : []),
+    ])];
+    if (inspiration) {
+      applyAntiGoals(mergedAntiGoals, dna, [], locks);
+    }
     const refreshed = refreshDNA(dna);
-    const labels = [...new Set([...parsed.insight.summary.slice(0, 2), ...variationLabels])];
+    const labels = [...new Set([
+      ...(inspiration ? variationLabels.slice(0, 1) : []),
+      ...parsed.insight.summary.slice(0, 2),
+      ...variationLabels.slice(inspiration ? 1 : 0),
+    ])];
+    const mergedKeywords = [...new Set([
+      ...parsed.insight.keywords,
+      ...(inspiration?.read.keywords ?? []),
+      ...(inspiration?.vision?.accepted ? inspiration.vision.keywords : []),
+    ])];
     const direction = makeDirection(
       refreshed,
       `dir_${refreshed.seed.toString(36)}_${i}`,
-      parsed.insight.keywords,
-      parsed.insight.antiGoals,
+      mergedKeywords,
+      mergedAntiGoals,
       labels,
       i,
     );
+    if (inspiration) {
+      direction.inspiration = {
+        mode: mode as InspirationMode,
+        match: referenceMatch(refreshed, inspiration.read, inspiration.settings),
+        sourceIds: inspiration.read.sources.map((source) => source.id),
+        sourceNames: inspiration.read.sources.map((source) => source.name),
+      };
+      if (inspiration.vision?.accepted && inspiration.vision.manifesto) {
+        direction.manifesto = inspiration.vision.manifesto;
+      }
+    }
     let attempt = 0;
     while (usedNames.has(direction.name) && attempt < 24) {
       attempt += 1;
@@ -687,6 +756,21 @@ export function buildDirections(
     }
     usedNames.add(direction.name);
     directions.push(direction);
+  }
+
+  if (inspiration) {
+    insight = {
+      ...insight,
+      summary: [
+        `Built four directions from ${inspiration.read.sources.length} reference${inspiration.read.sources.length === 1 ? '' : 's'} at ${Math.round(inspiration.settings.influence * 100)}% influence.`,
+        ...insight.summary,
+      ].slice(0, 6),
+      keywords: [...new Set([...insight.keywords, ...inspiration.read.keywords])],
+      antiGoals: [...new Set([
+        ...insight.antiGoals,
+        ...(inspiration.vision?.accepted ? inspiration.vision.antiGoals : []),
+      ])],
+    };
   }
 
   return { directions, insight };

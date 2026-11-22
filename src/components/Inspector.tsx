@@ -107,7 +107,10 @@ export function Inspector({
         <div>
           <div className="eyebrow">Live style DNA</div>
           <h2>{selected.name}</h2>
-          <p className="inspector__sub">{selected.keywords.slice(0, 4).join(' / ') || 'open direction'}</p>
+          <p className="inspector__sub">
+            {selected.inspiration ? `REF ${selected.inspiration.match} · ${selected.inspiration.mode} · ` : ''}
+            {selected.keywords.slice(0, 4).join(' / ') || 'open direction'}
+          </p>
         </div>
         <button type="button" className="icon-button" onClick={onReroll} title="Reroll this direction">
           <Icon name="refresh" size={15} />
@@ -165,7 +168,12 @@ export function Inspector({
       <section className="control-group">
         <div className="section-heading">
           <span>Palette</span>
-          <span className="muted">{Math.round(dna.paletteParams.chroma * 100)}% chroma</span>
+          <span className="muted">
+            {Math.round(dna.paletteParams.chroma * 100)}% chroma
+            {dna.referencePalette && (dna.paletteFidelity ?? 0) > 0
+              ? ` · ref ${Math.round((dna.paletteFidelity ?? 0) * 100)}%`
+              : ''}
+          </span>
         </div>
         <Slider
           label="Base hue"

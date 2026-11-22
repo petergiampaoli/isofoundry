@@ -303,6 +303,7 @@ export function paletteGpl(project: ProjectState, anchor: Anchor): string {
 }
 
 export function styleGuideJson(project: ProjectState, anchor: Anchor, signature: StyleSignature): string {
+  const direction = project.directions.find((item) => item.id === anchor.directionId);
   return JSON.stringify(
     {
       format: 'isofoundry/style-guide@1',
@@ -320,6 +321,15 @@ export function styleGuideJson(project: ProjectState, anchor: Anchor, signature:
         createdAt: anchor.createdAt,
         motionFrames: anchor.frames,
       },
+      direction: direction
+        ? {
+            name: direction.name,
+            manifesto: direction.manifesto,
+            keywords: direction.keywords,
+            antiGoals: direction.antiGoals,
+            inspiration: direction.inspiration ?? null,
+          }
+        : null,
       style: anchor.dna,
       signature,
       palette: {
@@ -337,6 +347,13 @@ export function styleGuideJson(project: ProjectState, anchor: Anchor, signature:
         pivot: [48, 75],
         view: 'SE',
       },
+      inspiration: project.inspirations.length > 0
+        ? {
+            settings: project.inspirationSettings,
+            references: project.inspirations.map(({ thumbnail, preview, ...meta }) => meta),
+            vision: project.inspirationVision,
+          }
+        : null,
       tests: project.tests,
       journey: project.events,
     },
@@ -398,7 +415,31 @@ export async function exportStylePack(project: ProjectState, anchor: Anchor, sig
   zip.file('project.json', projectJson(project));
   zip.file('godot/motion_frames.tres', buildGodotSpriteFrames(anchor));
   zip.file('godot/README.txt', 'Copy the motion/ folder and godot/motion_frames.tres into your Godot project.\nThe SpriteFrames resource expects res://motion/idle_*.png.\n');
-  zip.file('README.md', `# ${project.name} — style pack\n\nAnchor: ${anchor.name}\nKind: ${ASSET_LABELS[anchor.kind]}\nSeed: ${anchor.seed}\n\nContains the 1x and 4x anchor, four motion frames, a Style Guide board, palette, full creation journey, and a Godot SpriteFrames resource.\n\nAll images are generated from the saved Style DNA and seed; the project.json is the source of truth.\n`);
+
+  if (project.inspirations.length > 0) {
+    const inspirationMeta = {
+      settings: project.inspirationSettings,
+      references: project.inspirations.map(({ thumbnail, preview, ...meta }) => meta),
+      vision: project.inspirationVision,
+      note: project.inspirationSettings.includeInExport
+        ? 'Reference previews are included in references/. The original files were never stored.'
+        : 'Reference previews were excluded from this export by the project setting.',
+    };
+    zip.file('inspiration.json', JSON.stringify(inspirationMeta, null, 2));
+    if (project.inspirationVision) {
+      zip.file('vision-read.json', JSON.stringify(project.inspirationVision, null, 2));
+    }
+    if (project.inspirationSettings.includeInExport) {
+      project.inspirations.forEach((asset, index) => {
+        const data = asset.preview.split(',')[1];
+        const extension = asset.preview.startsWith('data:image/png') ? 'png' : 'webp';
+        if (data) zip.file(`references/${String(index + 1).padStart(2, '0')}-${slugify(asset.name)}.${extension}`, data, { base64: true });
+      });
+      zip.file('references/README.txt', 'Small reference previews extracted from the creation journey. Originals remain on the user’s device.\n');
+    }
+  }
+
+  zip.file('README.md', `# ${project.name} — style pack\n\nAnchor: ${anchor.name}\nKind: ${ASSET_LABELS[anchor.kind]}\nSeed: ${anchor.seed}\n\nContains the 1x and 4x anchor, four motion frames, a Style Guide board, palette, full creation journey, and a Godot SpriteFrames resource.\n${project.inspirations.length ? `\nInfluences: ${project.inspirations.length} reference(s); see inspiration.json${project.inspirationSettings.includeInExport ? ' and references/' : ''}.\n` : ''}\nAll images are generated from the saved Style DNA and seed; the project.json is the source of truth.\n`);
 
   const blob = await zip.generateAsync({ type: 'blob' });
   downloadBlob(blob, `${slug}-style-pack.zip`);

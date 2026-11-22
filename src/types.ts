@@ -58,6 +58,95 @@ export interface StyleDNA {
   bounce: number;
   weight: number;
   sway: number;
+  referencePalette?: string[];
+  paletteFidelity?: number;
+  voiceOverride?: Partial<VoiceAxes>;
+}
+
+export type InspirationFeature = 'palette' | 'form' | 'finish' | 'line';
+export type InspirationMode = 'palette' | 'form' | 'finish' | 'prompt';
+
+export interface InspirationConfidence {
+  palette: number;
+  form: number;
+  finish: number;
+  line: number;
+  voice: number;
+}
+
+export interface InspirationRead {
+  palette: string[];
+  paletteShares: number[];
+  hue: number;
+  accentHue: number;
+  foliageHue: number;
+  chroma: number;
+  contrast: number;
+  warmth: number;
+  meanL: number;
+  stdL: number;
+  edgeDensity: number;
+  detailEntropy: number;
+  texture: number;
+  flatness: number;
+  angularity: number;
+  symmetry: number;
+  keywords: string[];
+  confidence: InspirationConfidence;
+  suggestedVoice: VoiceAxes;
+}
+
+export interface InspirationAsset {
+  id: string;
+  name: string;
+  hash: string;
+  width: number;
+  height: number;
+  thumbnail: string;
+  preview: string;
+  read: InspirationRead;
+  weight: number;
+  createdAt: number;
+}
+
+export interface CombinedInspirationRead extends InspirationRead {
+  notes: string;
+  sources: Array<{ id: string; name: string; weight: number; primary: boolean }>;
+}
+
+export interface VisionRead {
+  provider: string;
+  model: string;
+  createdAt: number;
+  theme: string;
+  motifs: string[];
+  materials: string[];
+  mood: string;
+  shapeLanguage: string;
+  narrativeVoice: string;
+  motionDescription: string;
+  suggestedMotion: { weight: number; bounce: number; sway: number };
+  voice: VoiceAxes;
+  keywords: string[];
+  antiGoals: string[];
+  manifesto: string;
+  confidence: number;
+  accepted: boolean;
+}
+
+export interface InspirationSettings {
+  influence: number;
+  features: Record<InspirationFeature, boolean>;
+  paletteFidelity: number;
+  notes: string;
+  includeInExport: boolean;
+}
+
+export interface DirectionInspiration {
+  mode: InspirationMode;
+  match: number;
+  sourceIds: string[];
+  sourceNames: string[];
 }
 
 export interface Direction {
@@ -69,6 +158,7 @@ export interface Direction {
   keywords: string[];
   antiGoals: string[];
   deltas: string[];
+  inspiration?: DirectionInspiration;
   createdAt: number;
 }
 
@@ -146,7 +236,8 @@ export type JourneyEventType =
   | 'anchor'
   | 'test'
   | 'export'
-  | 'reset';
+  | 'reset'
+  | 'inspiration';
 
 export interface JourneyEvent {
   id: string;
@@ -168,10 +259,27 @@ export interface ProjectState {
   anchor: Anchor | null;
   tests: FitTest[];
   events: JourneyEvent[];
+  inspirations: InspirationAsset[];
+  primaryInspirationId: string | null;
+  inspirationSettings: InspirationSettings;
+  inspirationVision: VisionRead | null;
   createdAt: number;
   updatedAt: number;
   shuffle: number;
 }
+
+export const DEFAULT_INSPIRATION_SETTINGS: InspirationSettings = {
+  influence: 0.65,
+  features: {
+    palette: true,
+    form: true,
+    finish: true,
+    line: false,
+  },
+  paletteFidelity: 0.55,
+  notes: '',
+  includeInExport: true,
+};
 
 export const ASSET_LABELS: Record<AssetKind, string> = {
   tree: 'Tree',
