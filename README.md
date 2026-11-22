@@ -33,7 +33,11 @@ npm install
 npm run dev
 ```
 
-Open <http://127.0.0.1:4173>.
+The app opens in your default browser at <http://localhost:4173>. If port 4173 is already in use, stop the old server first:
+
+```bash
+lsof -ti tcp:4173 | xargs kill
+```
 
 The app saves the working project to `localStorage`. Use **Project .json** to archive it, **Import project** to restore it, and **New session** to start blank. **Reset demo** restores the starter prompt.
 

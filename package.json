@@ -5,7 +5,7 @@
   "type": "module",
   "description": "A prompt-driven isometric pixel-art style lab and asset foundry.",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --open",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
