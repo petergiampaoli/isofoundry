@@ -72,6 +72,7 @@ export function InspirationPanel({
   const referenceApplied = Boolean(selectedDirection?.inspiration) && currentSourceIds === appliedSourceIds;
 
   const handleFiles = async (files: FileList | File[]) => {
+    if (busy) return;
     const images = Array.from(files).filter(isImageFile);
     if (images.length === 0) {
       setError('Choose a PNG, JPG, or WebP image.');
@@ -188,7 +189,11 @@ export function InspirationPanel({
           onClick={() => inputRef.current?.click()}
           onPaste={(event) => {
             const files = Array.from(event.clipboardData.files);
-            if (files.length > 0) void handleFiles(files);
+            if (files.length > 0) {
+              event.preventDefault();
+              event.stopPropagation();
+              void handleFiles(files);
+            }
           }}
         >
           <span className="inspiration__drop-icon"><Icon name="plus" size={22} /></span>
