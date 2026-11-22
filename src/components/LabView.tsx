@@ -48,8 +48,8 @@ export function LabView({
           <div>
             <h1>Find the voice.</h1>
             <p>
-              Describe a feeling. Get four visual directions, each tested on a tree, a stone, and a person.
-              Keep what resonates, lock what matters, then push the direction further.
+              Describe a feeling or add inspiration art. Nothing is generated until you provide input.
+              Then get four visual directions, each tested on a tree, a stone, and a person.
             </p>
           </div>
           <div className="lab__hero-mark" aria-hidden="true">
@@ -83,7 +83,7 @@ export function LabView({
             }
           }}
           rows={3}
-          placeholder="Moss-eaten stone, practical iron, wind-worn cloth. Grounded and tactile, with a quiet strangeness. No glossy armor."
+          placeholder="Write an art direction prompt…"
         />
         <div className="composer__bottom">
           <div className="composer__examples">
@@ -135,7 +135,9 @@ export function LabView({
           <span className="eyebrow">Directions</span>
           <span className="section-bar__count">{directions.length.toString().padStart(2, '0')}</span>
         </div>
-        <span className="muted">Calibration probes: tree / stone / person</span>
+        <span className="muted">
+          {directions.length > 0 ? 'Calibration probes: tree / stone / person' : 'Waiting for a prompt or reference'}
+        </span>
       </div>
 
       {directions.length > 0 ? (
@@ -155,10 +157,10 @@ export function LabView({
           <div className="empty-lab__mark">
             <Icon name="diamond" size={42} />
           </div>
-          <h2>The first prompt is a starting position.</h2>
+          <h2>Start with a prompt or a reference.</h2>
           <p>
-            Style is found by iteration, not by a single magic phrase. Try a material, a mood, and one thing
-            the world must never feel like.
+            The workspace is intentionally empty. Add text or inspiration art above, then explore four
+            directions. Style is found by iteration, not by a single magic phrase.
           </p>
           <div className="empty-lab__examples">
             {EXAMPLES.map((example) => (

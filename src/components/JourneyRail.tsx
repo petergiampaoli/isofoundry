@@ -6,7 +6,6 @@ interface JourneyRailProps {
   project: ProjectState;
   onRename: (name: string) => void;
   onNewSession: () => void;
-  onResetDemo: () => void;
   onImport: (project: ProjectState) => void;
 }
 
@@ -27,7 +26,7 @@ function formatTime(value: number): string {
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export function JourneyRail({ project, onRename, onNewSession, onResetDemo, onImport }: JourneyRailProps) {
+export function JourneyRail({ project, onRename, onNewSession, onImport }: JourneyRailProps) {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const importFile = (file: File | undefined) => {
@@ -69,7 +68,7 @@ export function JourneyRail({ project, onRename, onNewSession, onResetDemo, onIm
           <span>01</span>
           <div>
             <strong>Style lab</strong>
-            <small>{project.directions.length ? `${project.directions.length} directions` : 'waiting for prompt'}</small>
+            <small>{project.directions.length ? `${project.directions.length} directions` : 'waiting for input'}</small>
           </div>
         </div>
         <div className={`rail-step ${project.anchor ? 'is-done' : project.selectedDirectionId ? 'is-active' : ''}`}>
@@ -94,6 +93,9 @@ export function JourneyRail({ project, onRename, onNewSession, onResetDemo, onIm
           <span className="muted">{project.events.length}</span>
         </div>
         <div className="timeline">
+          {project.events.length === 0 && (
+            <p className="rail__empty">Prompts, references, reads, and decisions will appear here.</p>
+          )}
           {project.events.slice(0, 12).map((event: JourneyEvent, index) => (
             <div key={event.id} className={`timeline__item ${index === 0 ? 'is-latest' : ''}`}>
               <div className="timeline__mark">{EVENT_MARK[event.type]}</div>
@@ -113,9 +115,6 @@ export function JourneyRail({ project, onRename, onNewSession, onResetDemo, onIm
         </button>
         <button type="button" className="rail-action" onClick={() => fileRef.current?.click()}>
           <Icon name="download" size={14} /> Import project
-        </button>
-        <button type="button" className="rail-action rail-action--quiet" onClick={onResetDemo}>
-          <Icon name="refresh" size={14} /> Reset demo
         </button>
         <input
           ref={fileRef}

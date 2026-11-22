@@ -730,7 +730,9 @@ p {
 }
 
 .composer textarea::placeholder {
-  color: #4e5853;
+  color: #3f4a45;
+  font-style: italic;
+  font-size: 19px;
 }
 
 .composer__bottom {
@@ -3565,4 +3567,19 @@ p {
 .ai-card__hint strong {
   color: var(--accent);
   font-weight: 550;
+}
+
+.rail__empty {
+  max-width: 190px;
+  color: #4d5752;
+  font-size: 9px;
+  line-height: 1.55;
+  padding: 2px 0 0;
+}
+
+.button--primary:disabled {
+  background: #202a25;
+  border-color: #2b3530;
+  color: #6f7a72;
+  opacity: 1;
 }

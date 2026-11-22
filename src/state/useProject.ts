@@ -25,7 +25,7 @@ import { renderAsset } from '../lib/render';
 import { compareSignatures, computeSignature } from '../lib/signature';
 
 const STORAGE_KEY = 'isofoundry.project.v1';
-const INITIAL_PROMPT = 'Moss-eaten stone, practical iron, wind-worn cloth. Grounded and tactile, with a quiet strangeness. No glossy armor.';
+const LEGACY_DEMO_PROMPT = 'Moss-eaten stone, practical iron, wind-worn cloth. Grounded and tactile, with a quiet strangeness. No glossy armor.';
 
 export type DNAPatch = Partial<Omit<StyleDNA, 'palette' | 'voice' | 'name' | 'paletteParams'>> & {
   paletteParams?: Partial<PaletteParams>;
@@ -51,35 +51,6 @@ function pushEvent(project: ProjectState, next: JourneyEvent): ProjectState {
   };
 }
 
-export function createInitialProject(): ProjectState {
-  const now = Date.now();
-  const salt = hashString('isofoundry-initial-voice');
-  const { directions } = buildDirections(INITIAL_PROMPT, null, [], salt, 4);
-  const project: ProjectState = {
-    version: 1,
-    id: `project_${now.toString(36)}`,
-    name: 'Isofoundry Study 01',
-    prompt: INITIAL_PROMPT,
-    directions,
-    selectedDirectionId: directions[0]?.id ?? null,
-    lockedTraits: [],
-    anchor: null,
-    tests: [],
-    events: [
-      event('project', 'Style session opened', 'A starter prompt is loaded. Replace it with your own.'),
-      event('prompt', 'Seed prompt explored', INITIAL_PROMPT),
-    ],
-    inspirations: [],
-    primaryInspirationId: null,
-    inspirationSettings: { ...DEFAULT_INSPIRATION_SETTINGS },
-    inspirationVision: null,
-    createdAt: now,
-    updatedAt: now,
-    shuffle: salt,
-  };
-  return project;
-}
-
 export function createEmptyProject(): ProjectState {
   const now = Date.now();
   return {
@@ -92,7 +63,7 @@ export function createEmptyProject(): ProjectState {
     lockedTraits: [],
     anchor: null,
     tests: [],
-    events: [event('project', 'New session opened', 'The style conversation starts here.')],
+    events: [],
     inspirations: [],
     primaryInspirationId: null,
     inspirationSettings: { ...DEFAULT_INSPIRATION_SETTINGS },
@@ -101,6 +72,12 @@ export function createEmptyProject(): ProjectState {
     updatedAt: now,
     shuffle: hashString(`new-${now}`),
   };
+}
+
+function isLegacyDemoProject(project: ProjectState): boolean {
+  return project.name === 'Isofoundry Study 01'
+    && project.prompt === LEGACY_DEMO_PROMPT
+    && (project.inspirations?.length ?? 0) === 0;
 }
 
 export function normalizeProject(project: ProjectState): ProjectState {
@@ -125,12 +102,15 @@ export function loadStoredProject(): ProjectState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as ProjectState;
-      if (parsed?.version === 1 && Array.isArray(parsed.directions)) return normalizeProject(parsed);
+      if (parsed?.version === 1 && Array.isArray(parsed.directions)) {
+        if (isLegacyDemoProject(parsed)) return createEmptyProject();
+        return normalizeProject(parsed);
+      }
     }
   } catch {
     // Ignore a corrupted local session and start clean.
   }
-  return createInitialProject();
+  return createEmptyProject();
 }
 
 export interface ProjectActions {
@@ -146,7 +126,6 @@ export interface ProjectActions {
   testFit: (kind: AssetKind, drift: boolean, seedOverride?: number) => FitResult | null;
   editAnchor: () => void;
   newSession: () => void;
-  resetDemo: () => void;
   renameProject: (name: string) => void;
   importProject: (project: ProjectState) => void;
   setSelectedDirection: (id: string | null) => void;
@@ -400,10 +379,6 @@ export function useProject(): ProjectActions {
     setProject(createEmptyProject());
   }, []);
 
-  const resetDemo = useCallback(() => {
-    setProject(createInitialProject());
-  }, []);
-
   const renameProject = useCallback((name: string) => {
     setProject((current) => ({ ...current, name, updatedAt: Date.now() }));
   }, []);
@@ -510,7 +485,6 @@ export function useProject(): ProjectActions {
     testFit,
     editAnchor,
     newSession,
-    resetDemo,
     renameProject,
     importProject,
     setSelectedDirection,

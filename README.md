@@ -2,7 +2,7 @@
 
 A local-first, prompt-driven **isometric pixel-art style lab**. It finds a visual voice before it scales into an asset factory: you prompt, add inspiration art, compare directions on the same calibration probes, lock the traits that matter, develop one **North Star** asset, and turn that asset into a measurable Style DNA.
 
-This is **Milestone 1 — style and voice**. It is deliberately focused on the hardest part to fake: a consistent look that can be carried into characters, enemies, props, buildings, and landscape.
+This is **Milestone 1 — style and voice**. It is deliberately focused on the hardest part to fake: a consistent look that can be carried into characters, enemies, props, buildings, and landscape. The app starts empty; nothing is generated until you provide a prompt or reference.
 
 ![Isofoundry style lab](docs/lab.png)
 
@@ -39,14 +39,14 @@ The app opens in your default browser at <http://localhost:4173>. If port 4173 i
 lsof -ti tcp:4173 | xargs kill
 ```
 
-The app saves the working project to `localStorage`. Use **Project .json** to archive it, **Import project** to restore it, and **New session** to start blank. **Reset demo** restores the starter prompt.
+The app starts with an empty workspace: no prompt, no references, and no directions. Output is generated only after you provide text or inspiration art. The working project is saved to `localStorage`; use **Project .json** to archive it, **Import project** to restore it, and **New session** to start over blank.
 
 ## The workflow
 
-1. **Describe a feeling, not a genre.** Try a material, a mood, and an anti-goal:
+1. **Provide an input: text, image, or both.** Describe a feeling, a material, a mood, and an anti-goal — or add inspiration art. Examples:
    > Moss-eaten stone, practical iron, wind-worn cloth. Grounded and tactile, with a quiet strangeness. No glossy armor.
 2. **Add inspiration art (optional).** Drop up to four references. Mark one primary. Add a note about what draws you to it. Set the image influence and palette fidelity.
-3. **Explore four directions.** Each card shows the same tree, stone, and person. Reference-led cards show `REF` scores and their mode.
+3. **Generate output.** Press **Explore** to create four directions. Each card shows the same tree, stone, and person. Reference-led cards show `REF` scores and their mode.
 4. **Select a direction.** The live Style DNA opens on the right.
 5. **Refine with prompts.** Say “colder light, rounder forms, heavier motion, no neon.” Or move the sliders directly.
 6. **Lock traits.** Hold the palette or form while you explore other qualities.

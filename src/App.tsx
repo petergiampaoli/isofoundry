@@ -59,11 +59,6 @@ export default function App() {
     setPrompt('');
   };
 
-  const handleResetDemo = () => {
-    actions.resetDemo();
-    setScreen('lab');
-  };
-
   const handleImport = (incoming: ProjectState) => {
     actions.importProject(incoming);
     setPrompt(incoming.prompt);
@@ -193,7 +188,6 @@ export default function App() {
           project={project}
           onRename={actions.renameProject}
           onNewSession={handleNewSession}
-          onResetDemo={handleResetDemo}
           onImport={handleImport}
         />
 
