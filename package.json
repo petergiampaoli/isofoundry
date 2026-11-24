@@ -3,25 +3,38 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "A prompt-driven isometric pixel-art style lab and asset foundry.",
+  "description": "An agent-assisted pixel character studio for editable sprite art and animation.",
   "scripts": {
-    "dev": "vite --open",
+    "dev": "concurrently -k -s first \"tsx server/index.ts\" \"wait-on http://127.0.0.1:4174/api/health && vite --open\"",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "start": "NODE_ENV=production API_PORT=4173 tsx server/index.ts",
+    "api": "tsx server/index.ts"
   },
   "dependencies": {
+    "express": "^5.3.0",
+    "gifenc": "^1.0.3",
+    "idb-keyval": "^6.3.0",
+    "immer": "^11.2.10",
     "jszip": "^3.10.1",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "zod": "^4.6.7",
+    "zustand": "^5.1.0"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^10.0.7",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
-    "vitest": "^5.1.1"
+    "vitest": "^5.1.1",
+    "wait-on": "^9.5.1"
   }
 }
