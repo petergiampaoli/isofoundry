@@ -40,6 +40,39 @@ export const ROLE_LABELS: Record<PaletteRole, string> = {
 
 export type BodyPlan = "humanoid" | "quadruped" | "blob";
 
+export const VIEW_IDS = [
+  "frontRight",
+  "frontLeft",
+  "backLeft",
+  "backRight",
+] as const;
+
+export type ViewId = (typeof VIEW_IDS)[number];
+
+export const VIEW_LABELS: Record<ViewId, string> = {
+  frontRight: "Front-Right",
+  frontLeft: "Front-Left",
+  backLeft: "Back-Left",
+  backRight: "Back-Right",
+};
+
+export const VIEW_SHORT_LABELS: Record<ViewId, string> = {
+  frontRight: "FR",
+  frontLeft: "FL",
+  backLeft: "BL",
+  backRight: "BR",
+};
+
+export const VIEW_COMPASS: Record<ViewId, string> = {
+  frontRight: "SE",
+  frontLeft: "SW",
+  backLeft: "NW",
+  backRight: "NE",
+};
+
+export const TURNTABLE_VIEW_MS = 3000;
+export const TURNTABLE_LOOP_MS = TURNTABLE_VIEW_MS * VIEW_IDS.length;
+
 export type Build = {
   height: number;
   width: number;
@@ -123,7 +156,7 @@ export type AnimationFrame = {
   id: string;
   duration: number;
   transforms: Record<string, Partial<Transform>>;
-  pixels?: Record<string, number[]>;
+  pixels?: Partial<Record<ViewId, Record<string, number[]>>>;
 };
 
 export type AnimationDoc = {
@@ -140,13 +173,19 @@ export type CharacterDoc = {
   width: number;
   height: number;
   spec: CharacterSpec;
-  parts: Part[];
+  views: Record<ViewId, Part[]>;
+  activeView: ViewId;
   reference: ReferenceImage | null;
+  referenceView?: ViewId;
   animations: AnimationDoc[];
   currentAnimationId: string | null;
   createdAt: string;
   updatedAt: string;
 };
+
+export function activeParts(doc: CharacterDoc): Part[] {
+  return doc.views[doc.activeView] ?? doc.views.frontRight ?? [];
+}
 
 export type VersionSnapshot = {
   id: string;

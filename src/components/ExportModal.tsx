@@ -2,13 +2,18 @@
 
 import { useState } from "react";
 import {
+  exportAllDirectionGifs,
+  exportAllViewPngs,
   exportFrameZip,
   exportGif,
   exportGodot,
   exportProject,
   exportSpriteSheet,
   exportStaticPng,
+  exportTurntableGif,
+  exportViewSheetPng,
 } from "@/lib/export";
+import { VIEW_LABELS } from "@/lib/types";
 import { useStudio } from "@/store/studio";
 
 export default function ExportModal({ onClose }: { onClose: () => void }) {
@@ -36,10 +41,10 @@ export default function ExportModal({ onClose }: { onClose: () => void }) {
         <header className="modal-head">
           <div>
             <div className="eyebrow">Export</div>
-            <h2>Package the sprite.</h2>
+            <h2>Package the character set.</h2>
             <p>
-              PNG frames, sprite sheet, GIF, project JSON, and a Godot 4
-              `SpriteFrames` bundle.
+              Four isometric views, a 12-second turntable, directional animation
+              clips, sprite sheets, and a Godot 4 `SpriteFrames` bundle.
             </p>
           </div>
           <button
@@ -57,11 +62,46 @@ export default function ExportModal({ onClose }: { onClose: () => void }) {
             type="button"
             className="export-card"
             disabled={busy !== null}
-            onClick={() => run("static", () => exportStaticPng(doc, 4))}
+            onClick={() => run("turntable", () => exportTurntableGif(doc))}
+          >
+            <span className="export-icon">GIF</span>
+            <strong>12-second turntable</strong>
+            <small>FR → FL → BL → BR, 3 seconds per view, looping.</small>
+          </button>
+
+          <button
+            type="button"
+            className="export-card"
+            disabled={busy !== null}
+            onClick={() => run("sheet", () => exportViewSheetPng(doc, 4))}
+          >
+            <span className="export-icon">▦</span>
+            <strong>Four-view sheet</strong>
+            <small>2×2 transparent sheet at 4× scale.</small>
+          </button>
+
+          <button
+            type="button"
+            className="export-card"
+            disabled={busy !== null}
+            onClick={() => run("views", () => exportAllViewPngs(doc, 4))}
           >
             <span className="export-icon">PNG</span>
-            <strong>Static character PNG</strong>
-            <small>Transparent 4× base character image.</small>
+            <strong>All view PNGs</strong>
+            <small>One 4× transparent PNG per direction in a zip.</small>
+          </button>
+
+          <button
+            type="button"
+            className="export-card"
+            disabled={busy !== null}
+            onClick={() => run("static", () => exportStaticPng(doc, doc.activeView, 4))}
+          >
+            <span className="export-icon">PNG</span>
+            <strong>Active view PNG</strong>
+            <small>
+              {VIEW_LABELS[doc.activeView]} at 4×. Use the view tabs to change it.
+            </small>
           </button>
 
           <button
@@ -70,13 +110,30 @@ export default function ExportModal({ onClose }: { onClose: () => void }) {
             disabled={!animation || busy !== null}
             onClick={() =>
               animation
-                ? run("gif", () => exportGif(doc, animation))
+                ? run("gif", () => exportGif(doc, animation, doc.activeView))
                 : undefined
             }
           >
             <span className="export-icon">GIF</span>
-            <strong>Animated GIF</strong>
-            <small>Transparent preview with loop or one-shot timing.</small>
+            <strong>Animated GIF · active view</strong>
+            <small>
+              {VIEW_LABELS[doc.activeView]} with loop or one-shot timing.
+            </small>
+          </button>
+
+          <button
+            type="button"
+            className="export-card"
+            disabled={!animation || busy !== null}
+            onClick={() =>
+              animation
+                ? run("directions", () => exportAllDirectionGifs(doc, animation))
+                : undefined
+            }
+          >
+            <span className="export-icon">GIF</span>
+            <strong>Animated GIFs · all views</strong>
+            <small>Four directional GIFs in a zip.</small>
           </button>
 
           <button
@@ -90,8 +147,8 @@ export default function ExportModal({ onClose }: { onClose: () => void }) {
             }
           >
             <span className="export-icon">PNG</span>
-            <strong>PNG frame sequence</strong>
-            <small>One transparent PNG per frame in a zip.</small>
+            <strong>Directional frame sequence</strong>
+            <small>PNG per frame, grouped into four view folders.</small>
           </button>
 
           <button
@@ -105,8 +162,8 @@ export default function ExportModal({ onClose }: { onClose: () => void }) {
             }
           >
             <span className="export-icon">▦</span>
-            <strong>Sprite sheet</strong>
-            <small>Horizontal atlas plus JSON frame regions.</small>
+            <strong>Directional sprite sheet</strong>
+            <small>Four view rows plus JSON frame regions.</small>
           </button>
 
           <button
@@ -117,7 +174,9 @@ export default function ExportModal({ onClose }: { onClose: () => void }) {
           >
             <span className="export-icon">GD</span>
             <strong>Godot 4 bundle</strong>
-            <small>`SpriteFrames` .tres, atlas PNG, and metadata.</small>
+            <small>
+              `SpriteFrames` .tres with `idle_front_right`-style clips.
+            </small>
           </button>
 
           <button
@@ -128,15 +187,15 @@ export default function ExportModal({ onClose }: { onClose: () => void }) {
           >
             <span className="export-icon">JSON</span>
             <strong>Project file</strong>
-            <small>Re-importable character and animation data.</small>
+            <small>Re-importable four-view character and animation data.</small>
           </button>
         </div>
 
         <div className="modal-actions">
           <div className="panel-note">
             {animation
-              ? `Current animation: ${animation.name} · ${animation.frames.length} frames · ${animation.fps} fps`
-              : "No animation yet. Godot export will create a static idle frame."}
+              ? `Current animation: ${animation.name} · ${animation.frames.length} frames · ${animation.fps} fps · editing ${VIEW_LABELS[doc.activeView]}`
+              : "No animation yet. The turntable and view exports are available; Godot export will create a static directional idle."}
           </div>
           <button type="button" className="button button-ghost" onClick={onClose}>
             Close

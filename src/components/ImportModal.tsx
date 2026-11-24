@@ -4,7 +4,10 @@ import { useState } from "react";
 import { resizeImageDataUrl } from "@/lib/slice";
 import {
   BODY_PLAN_LABELS,
+  VIEW_IDS,
+  VIEW_LABELS,
   type BodyPlan,
+  type ViewId,
 } from "@/lib/types";
 import { useStudio } from "@/store/studio";
 
@@ -30,6 +33,9 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
   const [analyzing, setAnalyzing] = useState(false);
   const [note, setNote] = useState("");
   const [applyPlan, setApplyPlan] = useState(false);
+  const [referenceView, setReferenceView] = useState<ViewId>(
+    doc?.referenceView ?? doc?.activeView ?? "frontRight",
+  );
 
   if (!doc) return null;
 
@@ -76,7 +82,7 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
 
   function apply() {
     if (!dataUrl || !doc) return;
-    setReference(dataUrl, name || "Imported reference", bodyPlan);
+    setReference(dataUrl, name || "Imported reference", bodyPlan, referenceView);
     if (applyPlan) updateSpec({ bodyPlan });
     if (doc.reference) setReferenceOpacity(doc.reference.opacity);
     onClose();
@@ -90,8 +96,10 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
             <div className="eyebrow">Reference + slicing</div>
             <h2>Import full character art.</h2>
             <p>
-              The PNG becomes a locked reference layer. Slice regions of it into
-              editable parts with the rectangle or lasso tool.
+              Import one full-character view. It becomes a locked reference for
+              that direction only; the other three views stay generated from the
+              character spec. Slice regions into editable parts with the
+              rectangle or lasso tool.
             </p>
           </div>
           <button
@@ -135,6 +143,20 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
               />
             </div>
             <div className="field">
+              <label htmlFor="reference-view">Reference view</label>
+              <select
+                id="reference-view"
+                value={referenceView}
+                onChange={(event) => setReferenceView(event.target.value as ViewId)}
+              >
+                {VIEW_IDS.map((view) => (
+                  <option key={view} value={view}>
+                    {VIEW_LABELS[view]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
               <label htmlFor="reference-plan">Creature plan</label>
               <select
                 id="reference-plan"
@@ -157,7 +179,10 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
               Apply this plan to the generated character
             </label>
             <p className="panel-note">
-              {analyzing ? "Analyzing image…" : note || "The body plan is suggested from the image and can be overridden."}
+              {analyzing
+                ? "Analyzing image…"
+                : note ||
+                  "The imported PNG is a reference for one view. The body plan is suggested from the image and can be overridden."}
             </p>
           </div>
         </div>

@@ -1,10 +1,14 @@
 import JSZip from "jszip";
 import { GIFEncoder, applyPalette, quantize } from "gifenc";
 import { renderFrameToCanvas } from "./render";
-import type {
-  AnimationDoc,
-  AnimationFrame,
-  CharacterDoc,
+import {
+  TURNTABLE_VIEW_MS,
+  VIEW_IDS,
+  VIEW_LABELS,
+  type AnimationDoc,
+  type AnimationFrame,
+  type CharacterDoc,
+  type ViewId,
 } from "./types";
 
 function slug(value: string): string {
@@ -23,6 +27,10 @@ function godotName(value: string): string {
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "") || "animation"
   );
+}
+
+function viewSlug(view: ViewId): string {
+  return godotName(VIEW_LABELS[view]);
 }
 
 function downloadBlob(name: string, blob: Blob) {
@@ -57,19 +65,43 @@ function scaleCanvas(source: HTMLCanvasElement, scale: number): HTMLCanvasElemen
   return canvas;
 }
 
-export async function exportStaticPng(doc: CharacterDoc, scale = 4) {
-  const canvas = scaleCanvas(renderFrameToCanvas(doc, null), scale);
-  downloadBlob(`${slug(doc.name)}@${scale}x.png`, await canvasBlob(canvas));
+function composeViewSheet(
+  doc: CharacterDoc,
+  scale = 4,
+  frame: AnimationFrame | null = null,
+): HTMLCanvasElement {
+  const cell = doc.width * scale;
+  const canvas = document.createElement("canvas");
+  canvas.width = cell * 2;
+  canvas.height = cell * 2;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not create view sheet.");
+  context.imageSmoothingEnabled = false;
+  VIEW_IDS.forEach((view, index) => {
+    const cellCanvas = renderFrameToCanvas(doc, view, frame);
+    context.drawImage(
+      cellCanvas,
+      (index % 2) * cell,
+      Math.floor(index / 2) * cell,
+      cell,
+      cell,
+    );
+  });
+  return canvas;
 }
 
-export async function exportGif(doc: CharacterDoc, animation: AnimationDoc) {
+function encodeGif(
+  doc: CharacterDoc,
+  animation: AnimationDoc,
+  view: ViewId,
+): Uint8Array {
   const gif = GIFEncoder();
   const width = doc.width;
   const height = doc.height;
 
   for (let index = 0; index < animation.frames.length; index += 1) {
     const frame = animation.frames[index];
-    const canvas = renderFrameToCanvas(doc, frame);
+    const canvas = renderFrameToCanvas(doc, view, frame);
     const context = canvas.getContext("2d");
     if (!context) continue;
     const image = context.getImageData(0, 0, width, height);
@@ -92,29 +124,120 @@ export async function exportGif(doc: CharacterDoc, animation: AnimationDoc) {
   }
 
   gif.finish();
-  const bytes = gif.bytes();
+  return gif.bytes();
+}
+
+function encodeTurntableGif(doc: CharacterDoc): Uint8Array {
+  const gif = GIFEncoder();
+  const width = doc.width;
+  const height = doc.height;
+
+  VIEW_IDS.forEach((view, index) => {
+    const canvas = renderFrameToCanvas(doc, view, null);
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    const image = context.getImageData(0, 0, width, height);
+    const palette = quantize(image.data, 255, {
+      format: "rgba4444",
+      oneBitAlpha: true,
+      clearAlpha: true,
+      clearAlphaThreshold: 0,
+    });
+    const transparentIndex = palette.findIndex((color) => color[3] === 0);
+    const indexed = applyPalette(image.data, palette, "rgba4444");
+    gif.writeFrame(indexed, width, height, {
+      palette,
+      delay: TURNTABLE_VIEW_MS,
+      repeat: index === 0 ? 0 : undefined,
+      transparent: transparentIndex >= 0,
+      transparentIndex: Math.max(0, transparentIndex),
+    });
+  });
+
+  gif.finish();
+  return gif.bytes();
+}
+
+export async function exportStaticPng(
+  doc: CharacterDoc,
+  view: ViewId = doc.activeView,
+  scale = 4,
+) {
+  const canvas = scaleCanvas(renderFrameToCanvas(doc, view, null), scale);
+  downloadBlob(`${slug(doc.name)}-${viewSlug(view)}@${scale}x.png`, await canvasBlob(canvas));
+}
+
+export async function exportAllViewPngs(doc: CharacterDoc, scale = 4) {
+  const zip = new JSZip();
+  for (const view of VIEW_IDS) {
+    const canvas = scaleCanvas(renderFrameToCanvas(doc, view, null), scale);
+    zip.file(`${viewSlug(view)}.png`, await (await canvasBlob(canvas)).arrayBuffer());
+  }
+  downloadBlob(`${slug(doc.name)}-views.zip`, await zip.generateAsync({ type: "blob" }));
+}
+
+export async function exportViewSheetPng(doc: CharacterDoc, scale = 4) {
+  const canvas = composeViewSheet(doc, scale);
+  downloadBlob(`${slug(doc.name)}-view-sheet.png`, await canvasBlob(canvas));
+}
+
+export async function exportTurntableGif(doc: CharacterDoc) {
+  const bytes = encodeTurntableGif(doc);
   downloadBlob(
-    `${slug(doc.name)}-${slug(animation.name)}.gif`,
+    `${slug(doc.name)}-turntable.gif`,
     new Blob([bytes.buffer as ArrayBuffer], { type: "image/gif" }),
+  );
+}
+
+export async function exportGif(
+  doc: CharacterDoc,
+  animation: AnimationDoc,
+  view: ViewId = doc.activeView,
+) {
+  const bytes = encodeGif(doc, animation, view);
+  downloadBlob(
+    `${slug(doc.name)}-${slug(animation.name)}-${viewSlug(view)}.gif`,
+    new Blob([bytes.buffer as ArrayBuffer], { type: "image/gif" }),
+  );
+}
+
+export async function exportAllDirectionGifs(
+  doc: CharacterDoc,
+  animation: AnimationDoc,
+) {
+  const zip = new JSZip();
+  for (const view of VIEW_IDS) {
+    const bytes = encodeGif(doc, animation, view);
+    zip.file(
+      `${slug(animation.name)}-${viewSlug(view)}.gif`,
+      bytes.buffer as ArrayBuffer,
+    );
+  }
+  downloadBlob(
+    `${slug(doc.name)}-${slug(animation.name)}-directions.zip`,
+    await zip.generateAsync({ type: "blob" }),
   );
 }
 
 export async function exportFrameZip(doc: CharacterDoc, animation: AnimationDoc) {
   const zip = new JSZip();
-  const folder = zip.folder(`${slug(doc.name)}-${slug(animation.name)}`);
-  if (!folder) return;
+  const root = zip.folder(`${slug(doc.name)}-${slug(animation.name)}`);
+  if (!root) return;
 
-  for (let index = 0; index < animation.frames.length; index += 1) {
-    const frame = animation.frames[index];
-    const canvas = renderFrameToCanvas(doc, frame);
-    const blob = await canvasBlob(canvas);
-    folder.file(
-      `${String(index).padStart(3, "0")}.png`,
-      await blob.arrayBuffer(),
-    );
+  for (const view of VIEW_IDS) {
+    const folder = root.folder(viewSlug(view));
+    if (!folder) continue;
+    for (let index = 0; index < animation.frames.length; index += 1) {
+      const frame = animation.frames[index];
+      const canvas = renderFrameToCanvas(doc, view, frame);
+      folder.file(
+        `${String(index).padStart(3, "0")}.png`,
+        await (await canvasBlob(canvas)).arrayBuffer(),
+      );
+    }
   }
 
-  folder.file(
+  root.file(
     "metadata.json",
     JSON.stringify(
       {
@@ -123,10 +246,15 @@ export async function exportFrameZip(doc: CharacterDoc, animation: AnimationDoc)
         fps: animation.fps,
         loop: animation.loop,
         frameSize: { width: doc.width, height: doc.height },
-        frames: animation.frames.map((frame, index) => ({
-          index,
-          file: `${String(index).padStart(3, "0")}.png`,
-          duration: frame.duration,
+        views: VIEW_IDS.map((view) => ({
+          view,
+          label: VIEW_LABELS[view],
+          folder: viewSlug(view),
+          frames: animation.frames.map((frame, index) => ({
+            index,
+            file: `${viewSlug(view)}/${String(index).padStart(3, "0")}.png`,
+            duration: frame.duration,
+          })),
         })),
       },
       null,
@@ -134,107 +262,105 @@ export async function exportFrameZip(doc: CharacterDoc, animation: AnimationDoc)
     ),
   );
 
-  const blob = await zip.generateAsync({ type: "blob" });
   downloadBlob(
     `${slug(doc.name)}-${slug(animation.name)}-frames.zip`,
-    blob,
+    await zip.generateAsync({ type: "blob" }),
   );
 }
 
-type FlatFrame = {
+type AtlasRow = {
   animation: AnimationDoc;
-  frame: AnimationFrame;
-  index: number;
+  view: ViewId;
+  frames: AnimationFrame[];
 };
 
-function flattenAnimations(doc: CharacterDoc): {
-  animations: Array<{ animation: AnimationDoc; start: number; count: number }>;
-  frames: FlatFrame[];
-} {
-  const animations: Array<{
-    animation: AnimationDoc;
-    start: number;
-    count: number;
-  }> = [];
-  const frames: FlatFrame[] = [];
-  let index = 0;
+type AtlasRegion = {
+  row: AtlasRow;
+  frame: AnimationFrame;
+  column: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
 
-  for (const animation of doc.animations) {
-    animations.push({ animation, start: index, count: animation.frames.length });
-    for (const frame of animation.frames) {
-      frames.push({ animation, frame, index });
-      index += 1;
-    }
-  }
-
-  return { animations, frames };
-}
-
-function buildAtlas(doc: CharacterDoc, frames: FlatFrame[]) {
-  const columns = Math.max(1, frames.length);
+function buildAtlas(doc: CharacterDoc, rows: AtlasRow[]) {
+  const columns = Math.max(1, ...rows.map((row) => row.frames.length));
   const canvas = document.createElement("canvas");
   canvas.width = doc.width * columns;
-  canvas.height = doc.height;
+  canvas.height = doc.height * rows.length;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Could not create atlas.");
   context.imageSmoothingEnabled = false;
 
-  for (let index = 0; index < frames.length; index += 1) {
-    const frameCanvas = renderFrameToCanvas(doc, frames[index].frame);
-    context.drawImage(frameCanvas, index * doc.width, 0);
-  }
+  const regions: AtlasRegion[] = [];
+  rows.forEach((row, rowIndex) => {
+    row.frames.forEach((frame, column) => {
+      const frameCanvas = renderFrameToCanvas(doc, row.view, frame);
+      const x = column * doc.width;
+      const y = rowIndex * doc.height;
+      context.drawImage(frameCanvas, x, y);
+      regions.push({
+        row,
+        frame,
+        column,
+        x,
+        y,
+        width: doc.width,
+        height: doc.height,
+      });
+    });
+  });
 
-  return {
-    canvas,
-    regions: frames.map((frame, index) => ({
-      frame,
-      x: index * doc.width,
-      y: 0,
-      width: doc.width,
-      height: doc.height,
-    })),
-  };
+  return { canvas, regions, columns };
 }
 
 export async function exportSpriteSheet(
   doc: CharacterDoc,
   animation: AnimationDoc,
 ) {
-  const flat = flattenAnimations({
-    ...doc,
-    animations: [animation],
-  });
-  const atlas = buildAtlas(doc, flat.frames);
-  const blob = await canvasBlob(atlas.canvas);
+  const rows: AtlasRow[] = VIEW_IDS.map((view) => ({
+    animation,
+    view,
+    frames: animation.frames,
+  }));
+  const atlas = buildAtlas(doc, rows);
   const zip = new JSZip();
-  zip.file("spritesheet.png", await blob.arrayBuffer());
+  zip.file("spritesheet.png", await (await canvasBlob(atlas.canvas)).arrayBuffer());
   zip.file(
     "spritesheet.json",
     JSON.stringify(
       {
         name: doc.name,
+        animation: animation.name,
         frameSize: { width: doc.width, height: doc.height },
-        columns: flat.frames.length,
-        frames: atlas.regions.map((region, index) => ({
-          index,
-          name: `${slug(animation.name)}_${index}`,
+        columns: atlas.columns,
+        rows: rows.length,
+        views: VIEW_IDS,
+        frames: atlas.regions.map((region) => ({
+          name: `${slug(animation.name)}_${viewSlug(region.row.view)}_${region.column}`,
+          view: region.row.view,
+          viewLabel: VIEW_LABELS[region.row.view],
+          index: region.column,
           x: region.x,
           y: region.y,
           width: region.width,
           height: region.height,
-          duration: region.frame.frame.duration,
+          duration: region.frame.duration,
         })),
       },
       null,
       2,
     ),
   );
-  const zipBlob = await zip.generateAsync({ type: "blob" });
-  downloadBlob(`${slug(doc.name)}-${slug(animation.name)}-sheet.zip`, zipBlob);
+  downloadBlob(
+    `${slug(doc.name)}-${slug(animation.name)}-sheet.zip`,
+    await zip.generateAsync({ type: "blob" }),
+  );
 }
 
 export async function exportGodot(doc: CharacterDoc) {
-  const animations =
+  const animations: AnimationDoc[] =
     doc.animations.length > 0
       ? doc.animations
       : [
@@ -243,19 +369,18 @@ export async function exportGodot(doc: CharacterDoc) {
             name: "idle",
             fps: 1,
             loop: true,
-            frames: [
-              {
-                id: "static",
-                duration: 1,
-                transforms: {},
-              },
-            ],
+            frames: [{ id: "static", duration: 1, transforms: {} }],
           },
         ];
-  const flat = flattenAnimations({ ...doc, animations });
-  const atlas = buildAtlas(doc, flat.frames);
-  const pngBlob = await canvasBlob(atlas.canvas);
 
+  const rows: AtlasRow[] = animations.flatMap((animation) =>
+    VIEW_IDS.map((view) => ({
+      animation,
+      view,
+      frames: animation.frames,
+    })),
+  );
+  const atlas = buildAtlas(doc, rows);
   const regionById = new Map(
     atlas.regions.map((region, index) => [index, region]),
   );
@@ -267,19 +392,21 @@ export async function exportGodot(doc: CharacterDoc) {
     )
     .join("\n\n");
 
-  const animationBlocks = flat.animations.map(({ animation, start, count }) => {
-    const frameEntries = Array.from({ length: count }, (_, offset) => {
-      const frameIndex = start + offset;
-      const region = regionById.get(frameIndex);
-      const duration = Math.max(
-        0.01,
-        (region?.frame.frame.duration ?? 1) / Math.max(1, animation.fps),
-      );
-      return `{\n"duration": ${duration.toFixed(4)},\n"texture": SubResource("AtlasTexture_${frameIndex}")\n}`;
-    }).join(", ");
-    return `{\n"frames": [${frameEntries}],\n"loop": ${animation.loop},\n"name": &"${godotName(
-      animation.name,
-    )}",\n"speed": ${animation.fps}.0\n}`;
+  const animationBlocks = rows.map((row) => {
+    const frameEntries = row.frames
+      .map((frame, column) => {
+        const regionIndex = atlas.regions.findIndex(
+          (region) => region.row === row && region.column === column,
+        );
+        const duration = Math.max(
+          0.01,
+          frame.duration / Math.max(1, row.animation.fps),
+        );
+        return `{\n"duration": ${duration.toFixed(4)},\n"texture": SubResource("AtlasTexture_${regionIndex}")\n}`;
+      })
+      .join(", ");
+    const name = `${godotName(row.animation.name)}_${viewSlug(row.view)}`;
+    return `{\n"frames": [${frameEntries}],\n"loop": ${row.animation.loop},\n"name": &"${name}",\n"speed": ${row.animation.fps}.0\n}`;
   });
 
   const tres = `[gd_resource type="SpriteFrames" load_steps=${atlas.regions.length + 2} format=3]\n\n[ext_resource type="Texture2D" path="res://character_atlas.png" id="1_atlas"]\n\n${subResources}\n\n[resource]\nanimations = [${animationBlocks.join(
@@ -287,7 +414,7 @@ export async function exportGodot(doc: CharacterDoc) {
   )}]\n`;
 
   const zip = new JSZip();
-  zip.file("character_atlas.png", await pngBlob.arrayBuffer());
+  zip.file("character_atlas.png", await (await canvasBlob(atlas.canvas)).arrayBuffer());
   zip.file("character_frames.tres", tres);
   zip.file(
     "character_meta.json",
@@ -295,14 +422,22 @@ export async function exportGodot(doc: CharacterDoc) {
       {
         name: doc.name,
         frameSize: { width: doc.width, height: doc.height },
-        animations: flat.animations.map(({ animation }) => ({
-          name: animation.name,
-          fps: animation.fps,
-          loop: animation.loop,
-          frameCount: animation.frames.length,
+        views: VIEW_IDS.map((view) => ({ id: view, label: VIEW_LABELS[view], slug: viewSlug(view) })),
+        animations: rows.map((row) => ({
+          name: `${godotName(row.animation.name)}_${viewSlug(row.view)}`,
+          source: row.animation.name,
+          view: row.view,
+          fps: row.animation.fps,
+          loop: row.animation.loop,
+          frameCount: row.frames.length,
         })),
         pivots: Object.fromEntries(
-          doc.parts.map((part) => [part.id, part.pivot]),
+          VIEW_IDS.map((view) => [
+            view,
+            Object.fromEntries(
+              (doc.views[view] ?? []).map((part) => [part.id, part.pivot]),
+            ),
+          ]),
         ),
       },
       null,

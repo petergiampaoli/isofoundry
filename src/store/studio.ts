@@ -10,10 +10,12 @@ import {
 } from "@/lib/generator";
 import { buildParts, resizePixels } from "@/lib/render";
 import { normalizeSpec, uid } from "@/lib/schemas";
-import { loadProjectState, saveProjectState } from "@/lib/storage";
+import { loadProjectState, normalizeDoc, saveProjectState } from "@/lib/storage";
 import {
   IDENTITY_TRANSFORM,
   PALETTE_ROLES,
+  VIEW_IDS,
+  activeParts,
   type AnimationDoc,
   type CharacterDoc,
   type CharacterSpec,
@@ -22,6 +24,7 @@ import {
   type Tool,
   type Transform,
   type VersionSnapshot,
+  type ViewId,
 } from "@/lib/types";
 
 type View = "start" | "studio";
@@ -68,6 +71,7 @@ type StudioState = {
   loadLastProject: () => Promise<void>;
 
   selectPart: (id: string | null) => void;
+  setActiveView: (view: ViewId) => void;
   setTool: (tool: Tool) => void;
   setColorIndex: (index: number) => void;
   setBrushSize: (size: number) => void;
@@ -98,6 +102,7 @@ type StudioState = {
     dataUrl: string,
     name: string,
     bodyPlan: CharacterSpec["bodyPlan"] | null,
+    view?: ViewId,
   ) => void;
   setReferenceOpacity: (opacity: number) => void;
   toggleReference: () => void;
@@ -140,7 +145,10 @@ function createDoc(
     width,
     height,
     spec,
-    parts: buildParts(spec, width, height),
+    views: Object.fromEntries(
+      VIEW_IDS.map((view) => [view, buildParts(spec, width, height, view)]),
+    ) as CharacterDoc["views"],
+    activeView: "frontRight",
     reference: null,
     animations: [],
     currentAnimationId: null,
@@ -166,31 +174,33 @@ function applySpecToDoc(
   preserve: boolean,
 ): CharacterDoc {
   const next = clone(doc);
-  const generated = buildParts(nextSpec, doc.width, doc.height);
-  const oldById = new Map(doc.parts.map((part) => [part.id, part]));
   const samePlan = doc.spec.bodyPlan === nextSpec.bodyPlan;
+  const views = {} as CharacterDoc["views"];
 
-  const parts = generated.map((part) => {
-    const old = oldById.get(part.id);
-    if (old && preserve && samePlan) {
-      if (old.edited) {
-        part.pixels = [...old.pixels];
-        part.edited = true;
+  for (const view of VIEW_IDS) {
+    const oldById = new Map((doc.views[view] ?? []).map((part) => [part.id, part]));
+    const parts = buildParts(nextSpec, doc.width, doc.height, view).map((part) => {
+      const old = oldById.get(part.id);
+      if (old && preserve && samePlan) {
+        if (old.edited) {
+          part.pixels = [...old.pixels];
+          part.edited = true;
+        }
+        part.transform = { ...old.transform };
+        part.home = { ...old.home };
+        part.visible = old.visible;
       }
-      part.transform = { ...old.transform };
-      part.home = { ...old.home };
-      part.visible = old.visible;
-    }
-    return part;
-  });
-
-  const imported = doc.parts
-    .filter((part) => part.kind === "imported")
-    .map((part) => clone(part));
+      return part;
+    });
+    const imported = (doc.views[view] ?? [])
+      .filter((part) => part.kind === "imported")
+      .map((part) => clone(part));
+    views[view] = [...parts, ...imported];
+  }
 
   next.spec = nextSpec;
   next.name = nextSpec.name;
-  next.parts = [...parts, ...imported];
+  next.views = views;
   touch(next);
   return next;
 }
@@ -206,11 +216,12 @@ function currentAnimation(doc: CharacterDoc | null): AnimationDoc | null {
 
 function defaultPartId(doc: CharacterDoc): string | null {
   const preferred = ["torso", "body", "head", "eyes"];
+  const parts = activeParts(doc);
   for (const id of preferred) {
-    const part = doc.parts.find((entry) => entry.id === id);
+    const part = parts.find((entry) => entry.id === id);
     if (part) return part.id;
   }
-  return doc.parts[0]?.id ?? null;
+  return parts[0]?.id ?? null;
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
@@ -323,11 +334,16 @@ export const useStudio = create<StudioState>()(
     },
 
     openProject: (doc) => {
-      if (!doc || !Array.isArray(doc.parts) || !doc.spec) {
+      if (!doc || !doc.spec) {
         set({ error: "That file is not an Isofoundry character project." });
         return;
       }
-      const next = structuredClone(doc);
+      const legacy = doc as CharacterDoc & { parts?: Part[] };
+      if (!doc.views && !Array.isArray(legacy.parts)) {
+        set({ error: "That file is not an Isofoundry character project." });
+        return;
+      }
+      const next = normalizeDoc(structuredClone(doc));
       set({
         doc: next,
         view: "studio",
@@ -426,7 +442,7 @@ export const useStudio = create<StudioState>()(
         history: [],
         future: [],
         selectedPartId:
-          next.parts.find((part) => part.id === get().selectedPartId)?.id ??
+          activeParts(next).find((part) => part.id === get().selectedPartId)?.id ??
           defaultPartId(next),
         warning: null,
       });
@@ -438,7 +454,7 @@ export const useStudio = create<StudioState>()(
     revertVersion: (id) => {
       const version = get().versions.find((entry) => entry.id === id);
       if (!version) return;
-      const doc = clone(version.doc);
+      const doc = normalizeDoc(clone(version.doc));
       set({
         doc,
         view: "studio",
@@ -466,6 +482,18 @@ export const useStudio = create<StudioState>()(
     },
 
     selectPart: (id) => set({ selectedPartId: id }),
+
+    setActiveView: (view) =>
+      set((state) => {
+        if (!state.doc) return;
+        state.doc.activeView = view;
+        const parts = state.doc.views[view] ?? [];
+        if (!parts.some((part) => part.id === state.selectedPartId)) {
+          state.selectedPartId = defaultPartId(state.doc);
+        }
+        state.playing = false;
+      }),
+
     setTool: (tool) => set({ tool }),
     setColorIndex: (index) => set({ colorIndex: index }),
     setBrushSize: (size) => set({ brushSize: Math.max(1, Math.min(6, size)) }),
@@ -474,7 +502,7 @@ export const useStudio = create<StudioState>()(
       set((state) => {
         if (!state.doc) return;
         pushHistory(state);
-        const part = state.doc.parts.find((entry) => entry.id === id);
+        const part = activeParts(state.doc).find((entry) => entry.id === id);
         if (!part) return;
         part.pixels = pixels;
         part.edited = true;
@@ -485,7 +513,7 @@ export const useStudio = create<StudioState>()(
       set((state) => {
         if (!state.doc) return;
         pushHistory(state);
-        const part = state.doc.parts.find((entry) => entry.id === id);
+        const part = activeParts(state.doc).find((entry) => entry.id === id);
         if (!part) return;
         part.transform = { ...part.transform, ...patch };
         touch(state.doc);
@@ -495,7 +523,7 @@ export const useStudio = create<StudioState>()(
       set((state) => {
         if (!state.doc) return;
         pushHistory(state);
-        const part = state.doc.parts.find((entry) => entry.id === id);
+        const part = activeParts(state.doc).find((entry) => entry.id === id);
         if (!part) return;
         part.transform = { ...part.home };
         touch(state.doc);
@@ -504,11 +532,12 @@ export const useStudio = create<StudioState>()(
     detachPart: (id) =>
       set((state) => {
         if (!state.doc) return;
-        const part = state.doc.parts.find((entry) => entry.id === id);
+        const parts = activeParts(state.doc);
+        const part = parts.find((entry) => entry.id === id);
         if (!part) return;
         pushHistory(state);
-        const index = state.doc.parts.findIndex((entry) => entry.id === id);
-        const angle = (index / Math.max(1, state.doc.parts.length)) * Math.PI * 2;
+        const index = parts.findIndex((entry) => entry.id === id);
+        const angle = (index / Math.max(1, parts.length)) * Math.PI * 2;
         part.transform = {
           ...part.transform,
           x: part.home.x + Math.cos(angle) * 7,
@@ -520,7 +549,7 @@ export const useStudio = create<StudioState>()(
     attachPart: (id) =>
       set((state) => {
         if (!state.doc) return;
-        const part = state.doc.parts.find((entry) => entry.id === id);
+        const part = activeParts(state.doc).find((entry) => entry.id === id);
         if (!part) return;
         pushHistory(state);
         part.transform = { ...part.home };
@@ -531,8 +560,9 @@ export const useStudio = create<StudioState>()(
       set((state) => {
         if (!state.doc) return;
         pushHistory(state);
-        const count = Math.max(1, state.doc.parts.length);
-        state.doc.parts.forEach((part, index) => {
+        const parts = activeParts(state.doc);
+        const count = Math.max(1, parts.length);
+        parts.forEach((part, index) => {
           const angle = (index / count) * Math.PI * 2 - Math.PI / 2;
           const radius = 6 + (index % 2) * 2;
           part.transform = {
@@ -549,7 +579,7 @@ export const useStudio = create<StudioState>()(
       set((state) => {
         if (!state.doc) return;
         pushHistory(state);
-        state.doc.parts.forEach((part) => {
+        activeParts(state.doc).forEach((part) => {
           part.transform = { ...part.home };
         });
         touch(state.doc);
@@ -559,7 +589,7 @@ export const useStudio = create<StudioState>()(
       set((state) => {
         if (!state.doc) return;
         pushHistory(state);
-        const part = state.doc.parts.find((entry) => entry.id === id);
+        const part = activeParts(state.doc).find((entry) => entry.id === id);
         if (!part) return;
         part.visible = !part.visible;
         touch(state.doc);
@@ -568,7 +598,7 @@ export const useStudio = create<StudioState>()(
     updatePartName: (id, name) =>
       set((state) => {
         if (!state.doc) return;
-        const part = state.doc.parts.find((entry) => entry.id === id);
+        const part = activeParts(state.doc).find((entry) => entry.id === id);
         if (!part) return;
         part.name = name;
         touch(state.doc);
@@ -578,7 +608,10 @@ export const useStudio = create<StudioState>()(
       set((state) => {
         if (!state.doc) return;
         pushHistory(state);
-        state.doc.parts = state.doc.parts.filter((part) => part.id !== id);
+        const view = state.doc.activeView;
+        state.doc.views[view] = (state.doc.views[view] ?? []).filter(
+          (part) => part.id !== id,
+        );
         if (state.selectedPartId === id) {
           state.selectedPartId = defaultPartId(state.doc);
         }
@@ -640,10 +673,15 @@ export const useStudio = create<StudioState>()(
         const palette = state.doc.spec.palette;
         const extra = palette.extra ?? [];
         if (extraIndex < 0 || extraIndex >= extra.length) return;
-        const used = state.doc.parts.some((part) => part.pixels.includes(index))
-          || state.doc.animations.some((animation) =>
+        const used = VIEW_IDS.some((view) =>
+            (state.doc?.views[view] ?? []).some((part) => part.pixels.includes(index)),
+          ) || state.doc.animations.some((animation) =>
             animation.frames.some((frame) =>
-              Object.values(frame.pixels ?? {}).some((pixels) => pixels.includes(index)),
+              VIEW_IDS.some((view) =>
+                Object.values(frame.pixels?.[view] ?? {}).some((pixels) =>
+                  pixels.includes(index),
+                ),
+              ),
             ),
           );
         if (used) {
@@ -654,14 +692,20 @@ export const useStudio = create<StudioState>()(
         palette.extra = extra.filter((_, entryIndex) => entryIndex !== extraIndex);
         if (state.colorIndex === index) state.colorIndex = 0;
         else if (state.colorIndex > index) state.colorIndex -= 1;
-        for (const part of state.doc.parts) {
-          part.pixels = part.pixels.map((value) => (value > index ? value - 1 : value));
+        for (const view of VIEW_IDS) {
+          for (const part of state.doc.views[view] ?? []) {
+            part.pixels = part.pixels.map((value) => (value > index ? value - 1 : value));
+          }
         }
         for (const animation of state.doc.animations) {
           for (const frame of animation.frames) {
             if (!frame.pixels) continue;
-            for (const [partId, pixels] of Object.entries(frame.pixels)) {
-              frame.pixels[partId] = pixels.map((value) => (value > index ? value - 1 : value));
+            for (const view of VIEW_IDS) {
+              const viewPixels = frame.pixels[view];
+              if (!viewPixels) continue;
+              for (const [partId, pixels] of Object.entries(viewPixels)) {
+                viewPixels[partId] = pixels.map((value) => (value > index ? value - 1 : value));
+              }
             }
           }
         }
@@ -677,42 +721,48 @@ export const useStudio = create<StudioState>()(
         const oldHeight = doc.height;
         const offsetX = (width - oldWidth) / 2;
         const offsetY = (height - oldHeight) / 2;
-        doc.parts = doc.parts.map((part) => {
-          const factorX = width / oldWidth;
-          const factorY = height / oldHeight;
-          return {
-            ...part,
-            pixels: resizePixels(
-              part.pixels,
-              oldWidth,
-              oldHeight,
-              width,
-              height,
-              scaleArt,
-            ),
-            pivot: scaleArt
-              ? {
-                  x: part.pivot.x * factorX,
-                  y: part.pivot.y * factorY,
-                }
-              : {
-                  x: part.pivot.x + offsetX,
-                  y: part.pivot.y + offsetY,
-                },
-          };
-        });
-        for (const animation of doc.animations) {
-          for (const frame of animation.frames) {
-            if (!frame.pixels) continue;
-            for (const [partId, pixels] of Object.entries(frame.pixels)) {
-              frame.pixels[partId] = resizePixels(
-                pixels,
+        for (const view of VIEW_IDS) {
+          doc.views[view] = (doc.views[view] ?? []).map((part) => {
+            const factorX = width / oldWidth;
+            const factorY = height / oldHeight;
+            return {
+              ...part,
+              pixels: resizePixels(
+                part.pixels,
                 oldWidth,
                 oldHeight,
                 width,
                 height,
                 scaleArt,
-              );
+              ),
+              pivot: scaleArt
+                ? {
+                    x: part.pivot.x * factorX,
+                    y: part.pivot.y * factorY,
+                  }
+                : {
+                    x: part.pivot.x + offsetX,
+                    y: part.pivot.y + offsetY,
+                  },
+            };
+          });
+        }
+        for (const animation of doc.animations) {
+          for (const frame of animation.frames) {
+            if (!frame.pixels) continue;
+            for (const view of VIEW_IDS) {
+              const viewPixels = frame.pixels[view];
+              if (!viewPixels) continue;
+              for (const [partId, pixels] of Object.entries(viewPixels)) {
+                viewPixels[partId] = resizePixels(
+                  pixels,
+                  oldWidth,
+                  oldHeight,
+                  width,
+                  height,
+                  scaleArt,
+                );
+              }
             }
           }
         }
@@ -730,22 +780,23 @@ export const useStudio = create<StudioState>()(
           name: input.name,
           kind: "imported",
           pivot: input.pivot,
-          z: 100 + state.doc.parts.length,
+          z: 100 + activeParts(state.doc).length,
           pixels: input.pixels,
           transform: { ...IDENTITY_TRANSFORM },
           home: { ...IDENTITY_TRANSFORM },
           visible: true,
           edited: true,
         };
-        state.doc.parts.push(part);
+        state.doc.views[state.doc.activeView].push(part);
         state.selectedPartId = part.id;
         touch(state.doc);
       }),
 
-    setReference: (dataUrl, name, bodyPlan) =>
+    setReference: (dataUrl, name, bodyPlan, view) =>
       set((state) => {
         if (!state.doc) return;
         pushHistory(state);
+        const targetView = view ?? state.doc.activeView;
         state.doc.reference = {
           dataUrl,
           name,
@@ -753,6 +804,9 @@ export const useStudio = create<StudioState>()(
           opacity: 0.45,
           visible: true,
         };
+        state.doc.referenceView = targetView;
+        state.doc.activeView = targetView;
+        state.selectedPartId = defaultPartId(state.doc);
         state.showReference = true;
         touch(state.doc);
       }),
@@ -852,7 +906,11 @@ export const useStudio = create<StudioState>()(
         const frame = animation?.frames[state.frameIndex];
         if (!frame) return;
         pushHistory(state);
-        frame.pixels = { ...(frame.pixels ?? {}), [partId]: pixels };
+        const view = state.doc.activeView;
+        frame.pixels = {
+          ...(frame.pixels ?? {}),
+          [view]: { ...(frame.pixels?.[view] ?? {}), [partId]: pixels },
+        };
         touch(state.doc);
       }),
 
@@ -863,8 +921,15 @@ export const useStudio = create<StudioState>()(
         const frame = animation?.frames[state.frameIndex];
         if (!frame?.pixels) return;
         pushHistory(state);
-        if (partId) delete frame.pixels[partId];
-        else frame.pixels = {};
+        const view = state.doc.activeView;
+        if (partId) {
+          const viewPixels = frame.pixels[view];
+          if (!viewPixels) return;
+          delete viewPixels[partId];
+          if (Object.keys(viewPixels).length === 0) delete frame.pixels[view];
+        } else {
+          delete frame.pixels[view];
+        }
         touch(state.doc);
       }),
 
@@ -941,7 +1006,7 @@ export const useStudio = create<StudioState>()(
         state.future.push(structuredClone(immerCurrent(state.doc)));
         state.doc = previous;
         state.selectedPartId =
-          previous.parts.find((part) => part.id === state.selectedPartId)?.id ??
+          activeParts(previous).find((part) => part.id === state.selectedPartId)?.id ??
           defaultPartId(previous);
       }),
 
@@ -953,7 +1018,7 @@ export const useStudio = create<StudioState>()(
         state.history.push(structuredClone(immerCurrent(state.doc)));
         state.doc = next;
         state.selectedPartId =
-          next.parts.find((part) => part.id === state.selectedPartId)?.id ??
+          activeParts(next).find((part) => part.id === state.selectedPartId)?.id ??
           defaultPartId(next);
       }),
   })),

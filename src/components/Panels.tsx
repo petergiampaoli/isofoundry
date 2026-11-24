@@ -9,6 +9,7 @@ import {
   PATTERNS,
   ROLE_LABELS,
   WEAPONS,
+  activeParts,
   paletteArray,
   type BodyPlan,
   type CharacterDoc,
@@ -121,8 +122,8 @@ export function PartPanel() {
 
   if (!doc) return null;
   const usePose = Boolean(animation) && poseMode;
-  const part = doc.parts.find((entry) => entry.id === selectedPartId) ?? null;
-  const parts = [...doc.parts].sort((a, b) => b.z - a.z);
+  const part = activeParts(doc).find((entry) => entry.id === selectedPartId) ?? null;
+  const parts = [...activeParts(doc)].sort((a, b) => b.z - a.z);
   const delta = part && frame ? frame.transforms[part.id] ?? {} : {};
   const transform = part
     ? usePose
@@ -152,7 +153,7 @@ export function PartPanel() {
           <div className="eyebrow">Parts</div>
           <h2>Rig</h2>
         </div>
-        <span className="panel-count">{doc.parts.length}</span>
+        <span className="panel-count">{parts.length}</span>
       </div>
 
       <div className="panel-row workbench-actions">

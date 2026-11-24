@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { renderFrameToDataUrl } from "@/lib/render";
+import { renderViewSheetDataUrl } from "@/lib/render";
 import { useStudio } from "@/store/studio";
 import OptionPreview from "./OptionPreview";
 
@@ -20,7 +20,7 @@ export default function RefineModal({ onClose }: { onClose: () => void }) {
       doc.animations.find((entry) => entry.id === doc.currentAnimationId) ??
       doc.animations[0] ??
       null;
-    return renderFrameToDataUrl(doc, animation?.frames[0] ?? null);
+    return renderViewSheetDataUrl(doc, 3, animation?.frames[0] ?? null);
   }, [doc]);
 
   if (!doc) return null;
@@ -38,8 +38,8 @@ export default function RefineModal({ onClose }: { onClose: () => void }) {
             <div className="eyebrow">Agent revision</div>
             <h2>Send the current art back.</h2>
             <p>
-              The art director receives the current spec and a rendered PNG, then
-              returns four revised directions.
+              The art director receives the current spec and a four-view contact
+              sheet, then returns four revised directions.
             </p>
           </div>
           <button

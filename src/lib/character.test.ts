@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { fallbackOptions, presetAnimation } from './generator';
-import { buildParts } from './render';
+import { buildParts, TRANSPARENT } from './render';
 import { animationSpecSchema, normalizePalette, normalizeSpec } from './schemas';
-import { PALETTE_ROLES, paletteArray, type Palette } from './types';
+import { normalizeDoc } from './storage';
+import {
+  PALETTE_ROLES,
+  ROLE_INDEX,
+  TURNTABLE_LOOP_MS,
+  TURNTABLE_VIEW_MS,
+  VIEW_IDS,
+  paletteArray,
+} from './types';
 
 describe('character generation', () => {
   it('produces four editable character options', () => {
@@ -80,5 +88,86 @@ describe('palette and animation schemas', () => {
     delete features.hairStyle;
     const normalized = normalizeSpec(raw);
     expect(normalized.features.hairStyle).toBe('short');
+  });
+});
+
+describe('four isometric views', () => {
+  it('renders four distinct views with no face on the back views', () => {
+    const spec = fallbackOptions('a goblin brute with a cleaver', 1)[0];
+    const views = Object.fromEntries(
+      VIEW_IDS.map((view) => [view, buildParts(spec, 64, 64, view)]),
+    );
+    expect(VIEW_IDS).toEqual([
+      'frontRight',
+      'frontLeft',
+      'backLeft',
+      'backRight',
+    ]);
+    expect(views.frontRight).not.toEqual(views.frontLeft);
+    expect(views.backLeft).not.toEqual(views.backRight);
+
+    for (const view of ['backLeft', 'backRight'] as const) {
+      const head = views[view].find((part) => part.id === 'head');
+      expect(
+        head?.pixels.filter((value) => value === ROLE_INDEX.eye).length,
+      ).toBe(0);
+    }
+    const frontHead = views.frontRight.find((part) => part.id === 'head');
+    expect(
+      frontHead?.pixels.filter((value) => value === ROLE_INDEX.eye).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('keeps a 3 second per-view turntable on a 12 second loop', () => {
+    expect(TURNTABLE_VIEW_MS).toBe(3000);
+    expect(TURNTABLE_LOOP_MS).toBe(12000);
+    expect(TURNTABLE_LOOP_MS).toBe(TURNTABLE_VIEW_MS * VIEW_IDS.length);
+  });
+});
+
+describe('legacy single-view migration', () => {
+  it('moves legacy pixels to the front-right view and fills the other three', () => {
+    const spec = fallbackOptions('a moss goblin', 1)[0];
+    const legacyParts = buildParts(spec, 64, 64, 'frontRight');
+    const framePixels = new Array(64 * 64).fill(TRANSPARENT);
+    framePixels[10] = 3;
+    const legacy = {
+      id: 'legacy',
+      name: spec.name,
+      width: 64,
+      height: 64,
+      spec,
+      parts: legacyParts,
+      reference: null,
+      animations: [
+        {
+          id: 'run',
+          name: 'Run',
+          fps: 8,
+          loop: true,
+          frames: [
+            {
+              id: 'frame',
+              duration: 1,
+              transforms: {},
+              pixels: { torso: framePixels },
+            },
+          ],
+        },
+      ],
+      currentAnimationId: 'run',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const normalized = normalizeDoc(legacy as never);
+    expect(normalized.views.frontRight).toEqual(legacyParts);
+    expect(normalized.views.frontLeft.length).toBeGreaterThan(0);
+    expect(normalized.views.backLeft.length).toBeGreaterThan(0);
+    expect(normalized.views.backRight.length).toBeGreaterThan(0);
+    expect(normalized.activeView).toBe('frontRight');
+    expect(normalized.animations[0].frames[0].pixels?.frontRight?.torso).toEqual(
+      framePixels,
+    );
   });
 });

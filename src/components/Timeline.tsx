@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { renderFrameToDataUrl } from "@/lib/render";
-import type { AnimationFrame, CharacterDoc } from "@/lib/types";
+import type { AnimationFrame, CharacterDoc, ViewId } from "@/lib/types";
 import { useStudio } from "@/store/studio";
 
 function FrameThumb({
@@ -10,22 +10,24 @@ function FrameThumb({
   frame,
   active,
   index,
+  view,
   onClick,
 }: {
   doc: CharacterDoc;
   frame: AnimationFrame;
   active: boolean;
   index: number;
+  view: ViewId;
   onClick: () => void;
 }) {
   const [src, setSrc] = useState("");
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setSrc(renderFrameToDataUrl(doc, frame));
+      setSrc(renderFrameToDataUrl(doc, view, frame));
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [doc, frame]);
+  }, [doc, frame, view]);
 
   return (
     <button
@@ -186,7 +188,10 @@ export default function Timeline({
             type="button"
             className="mini-toggle"
             onClick={() => clearFramePartPixels()}
-            disabled={!frame?.pixels || Object.keys(frame.pixels).length === 0}
+            disabled={
+              !frame?.pixels?.[doc.activeView] ||
+              Object.keys(frame.pixels[doc.activeView] ?? {}).length === 0
+            }
             title="Clear all pixel overrides on this frame"
           >
             Clear paint
@@ -224,6 +229,7 @@ export default function Timeline({
             frame={frame}
             active={index === frameIndex}
             index={index}
+            view={doc.activeView}
             onClick={() => setFrameIndex(index)}
           />
         ))}

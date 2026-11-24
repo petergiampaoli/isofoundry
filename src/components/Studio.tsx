@@ -2,7 +2,16 @@
 
 import { useState } from "react";
 import { sliceReference } from "@/lib/slice";
-import { BODY_PLAN_LABELS, type Point, type Tool } from "@/lib/types";
+import {
+  BODY_PLAN_LABELS,
+  VIEW_COMPASS,
+  VIEW_IDS,
+  VIEW_LABELS,
+  VIEW_SHORT_LABELS,
+  activeParts,
+  type Point,
+  type Tool,
+} from "@/lib/types";
 import { useStudio } from "@/store/studio";
 import AnimationModal from "./AnimationModal";
 import ExportModal from "./ExportModal";
@@ -29,6 +38,7 @@ export default function Studio() {
   const brushSize = useStudio((state) => state.brushSize);
   const setBrushSize = useStudio((state) => state.setBrushSize);
   const selectedPartId = useStudio((state) => state.selectedPartId);
+  const setActiveView = useStudio((state) => state.setActiveView);
   const versions = useStudio((state) => state.versions);
   const history = useStudio((state) => state.history);
   const future = useStudio((state) => state.future);
@@ -45,7 +55,7 @@ export default function Studio() {
   const [exportOpen, setExportOpen] = useState(false);
 
   if (!doc) return null;
-  const selectedPart = doc.parts.find((part) => part.id === selectedPartId);
+  const selectedPart = activeParts(doc).find((part) => part.id === selectedPartId);
   const currentAnimation =
     doc.animations.find((entry) => entry.id === doc.currentAnimationId) ??
     doc.animations[0] ??
@@ -63,7 +73,7 @@ export default function Studio() {
       doc.width,
       doc.height,
       doc.spec.palette,
-      `Sliced part ${doc.parts.filter((part) => part.kind === "imported").length + 1}`,
+      `Sliced part ${activeParts(doc).filter((part) => part.kind === "imported").length + 1}`,
     );
     setStatus(null);
     if (!result) {
@@ -100,7 +110,8 @@ export default function Studio() {
         <div className="studio-project">
           <strong>{doc.name}</strong>
           <span>
-            {BODY_PLAN_LABELS[doc.spec.bodyPlan]} · {doc.width}×{doc.height}
+            {BODY_PLAN_LABELS[doc.spec.bodyPlan]} · {doc.width}×{doc.height} ·{" "}
+            {VIEW_LABELS[doc.activeView]} · {VIEW_COMPASS[doc.activeView]}
           </span>
         </div>
 
@@ -214,7 +225,23 @@ export default function Studio() {
       </aside>
 
       <main className="studio-canvas">
-        <PixelCanvas onSlice={handleSlice} />
+        <div className="view-tabs" role="tablist" aria-label="Character view">
+          {VIEW_IDS.map((view) => (
+            <button
+              key={view}
+              type="button"
+              role="tab"
+              aria-selected={doc.activeView === view}
+              className={`view-tab${doc.activeView === view ? " active" : ""}`}
+              onClick={() => setActiveView(view)}
+              title={`${VIEW_LABELS[view]} · ${VIEW_COMPASS[view]}`}
+            >
+              <strong>{VIEW_SHORT_LABELS[view]}</strong>
+              <span>{VIEW_LABELS[view]}</span>
+            </button>
+          ))}
+        </div>
+        <PixelCanvas key={doc.activeView} onSlice={handleSlice} />
       </main>
 
       <aside className="studio-side">

@@ -7,7 +7,7 @@ import {
   TRANSPARENT,
 } from "@/lib/render";
 import { loadImage, nearestPaletteIndex } from "@/lib/slice";
-import { type Point, type Tool } from "@/lib/types";
+import { activeParts, type Point, type Tool } from "@/lib/types";
 import { useStudio } from "@/store/studio";
 
 type Draft = {
@@ -91,6 +91,7 @@ export default function PixelCanvas({
   onSlice?: (points: Point[]) => void;
 }) {
   const doc = useStudio((state) => state.doc);
+  const activeView = useStudio((state) => state.doc?.activeView ?? "frontRight");
   const selectedPartId = useStudio((state) => state.selectedPartId);
   const tool = useStudio((state) => state.tool);
   const colorIndex = useStudio((state) => state.colorIndex);
@@ -188,7 +189,7 @@ export default function PixelCanvas({
     const draftPixels = draftRef.current
       ? { [draftRef.current.partId]: draftRef.current.pixels }
       : undefined;
-    renderDocumentToCanvas(doc, frame, canvasRef.current, {
+    renderDocumentToCanvas(doc, activeView, frame, canvasRef.current, {
       referenceImage: referenceRef.current,
       showReference,
       draftPixels,
@@ -224,6 +225,7 @@ export default function PixelCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     doc,
+    activeView,
     frame,
     frameIndex,
     referenceReady,
@@ -257,7 +259,7 @@ export default function PixelCanvas({
   function beginDrawing(event: React.PointerEvent<HTMLCanvasElement>) {
     if (!doc) return;
     const point = pointFromEvent(event);
-    const part = doc.parts.find((entry) => entry.id === selectedPartId);
+    const part = activeParts(doc).find((entry) => entry.id === selectedPartId);
 
     if (tool === "eyedropper") {
       const context = canvasRef.current?.getContext("2d");
@@ -273,7 +275,7 @@ export default function PixelCanvas({
     if (tool === "fill") {
       if (!part) return;
       const basePixels = paintingFrame
-        ? frame?.pixels?.[part.id] ?? part.pixels
+        ? frame?.pixels?.[activeView]?.[part.id] ?? part.pixels
         : part.pixels;
       commitPixels(
         part.id,
@@ -308,7 +310,9 @@ export default function PixelCanvas({
     draftRef.current = {
       partId: part.id,
       pixels: [
-        ...(paintingFrame ? frame?.pixels?.[part.id] ?? part.pixels : part.pixels),
+        ...(paintingFrame
+          ? frame?.pixels?.[activeView]?.[part.id] ?? part.pixels
+          : part.pixels),
       ],
       last: point,
     };
@@ -444,7 +448,7 @@ export default function PixelCanvas({
       <div className="canvas-footer">
         <span>
           {selectedPartId
-            ? doc.parts.find((part) => part.id === selectedPartId)?.name
+            ? activeParts(doc).find((part) => part.id === selectedPartId)?.name
             : "No part selected"}
         </span>
         <span>
