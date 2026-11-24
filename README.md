@@ -1,6 +1,6 @@
 # Isofoundry Character Studio
 
-An **agent-assisted pixel character builder** — a web application, not a game. It turns a structured character prompt into four editable base concepts, each rendered in four true isometric diagonal views. It then gives you a layered part editor, a multi-color palette, pixel painting, PNG import/slicing, and agentic first-pass animation with a hand-editable timeline.
+An **agent-assisted pixel character builder** — a web application, not a game. It turns a structured character prompt into four editable base concepts, each rendered in four view-specific isometric diagonal sprites. It then gives you a layered part editor, a multi-color palette, pixel painting, PNG import/slicing, and agentic first-pass animation with a hand-editable timeline.
 
 ![Character concept screen](docs/start.png)
 
